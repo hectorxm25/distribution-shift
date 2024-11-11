@@ -11,3 +11,6 @@ However, first I will use a pretrained resnet18 model on CIFAR10
 NOTE: CIFAR10 dataset is not entirely in this repo, look at the adversarial/temp_example.py way to download the dataset locally.
 
 This (link)[https://www.perplexity.ai/search/i-want-to-get-adversarial-exam-yeB0IQfgRYC5eka1SLhT8g] has a lot of what was used to code this
+
+More notes (to be stored elsewhere):
+Accuracy on test set for RESNET18 in-house trained model is 95%

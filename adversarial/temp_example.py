@@ -16,7 +16,7 @@ def main():
     Dataset = CIFAR(DATASET_PATH)
     print("successfully loaded dataset")
     # loading pre-trained model resnet18
-    model, _ = model_utils.make_and_restore_model(arch='resnet18', dataset=Dataset) # will download it if not present
+    model, _ = model_utils.make_and_restore_model(arch='resnet18', dataset=Dataset, resume_path='/home/gridsan/hmartinez/distribution-shift/models/149_checkpoint.pt') # will download it if not present
     # specify device
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     # create loader
