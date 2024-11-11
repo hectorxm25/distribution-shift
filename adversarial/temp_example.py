@@ -6,12 +6,28 @@ Will attempt to generate a few adversarial examples given an already-trained mod
 import torch
 import torchvision
 import numpy as np
-import robustness.datasets
+from robustness import model_utils, datasets
+from robustness.datasets import CIFAR
+
+DATASET_PATH = "/home/gridsan/hmartinez/distribution-shift/datasets"
 
 def main():
     # attempt to pull CIFAR10 dataset
-    Dataset = robustness.datasets.CIFAR(data_path='/tmp/')
+    Dataset = CIFAR(DATASET_PATH)
     print("successfully loaded dataset")
+    # loading pre-trained model resnet18
+    model, _ = model_utils.make_and_restore_model(arch='resnet18', dataset=Dataset) # will download it if not present
+    # specify device
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    # create loader
+    _,test_loader = Dataset.make_loaders(batch_size=1, workers=8)
+    x, y = next(iter(test_loader))
+    # make pred
+    with torch.no_grad():
+        output, _ = model(x.to(device))
+    # get predicted class
+    pred_class = output.argmax(1).item()
+    print(f"Class is {pred_class}")
 
 
 
