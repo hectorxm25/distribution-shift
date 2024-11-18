@@ -85,7 +85,6 @@ def evaluate_robustness(model, adv_examples, labels):
 
 
 
-
 if __name__ == "__main__":
     MODEL_PATH = "/home/gridsan/hmartinez/distribution-shift/models/149_checkpoint.pt"
     DATA_PATH = "/home/gridsan/hmartinez/distribution-shift/datasets"
