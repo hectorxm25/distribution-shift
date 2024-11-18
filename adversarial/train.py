@@ -6,7 +6,7 @@ import cox
 OUTPUT_DIR = '/home/gridsan/hmartinez/distribution-shift/models'
 NO_ADVERSARIAL_TRAINING_PARAMS = {
     'out_dir': OUTPUT_DIR,
-    'adv_train': 0,  # Set to 1 for adversarial training
+    'adv_train': 0,  # Set to 1 for adversarial training, #TODO: DO THIS AT 1
     'epochs': 150,
     'lr': 0.1,
     'momentum': 0.9,
