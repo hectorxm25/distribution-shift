@@ -96,5 +96,12 @@ def train_adversarial(config):
     model = train.train_model(train_args, model, (train_loader, val_loader))
     return model
 
+# TODO: add a function that will train a model with the first half of the dataset
+# naturally and the second half adversarially, each with an equal number of gradient
+# updates per image.
+
+
+
+
 if __name__ == "__main__":
     train_adversarial(ADVERSARIAL_TRAINING_PARAMS)
