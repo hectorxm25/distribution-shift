@@ -150,10 +150,8 @@ def train_hybrid(natural_config, adversarial_config):
     natural_config = cox.utils.Parameters(natural_config)
     adversarial_config = cox.utils.Parameters(adversarial_config)
     train_args = defaults.check_and_fill_args(natural_config, defaults.TRAINING_ARGS, ds_class="CIFAR")
-    print(f"training args: {train_args}")
     adv_args = defaults.check_and_fill_args(adversarial_config, defaults.PGD_ARGS, ds_class="CIFAR")
-    print(f"adversarial args: {adv_args}")
-    
+
     # Training loop
     model.train()
     optimizer = torch.optim.SGD(model.parameters(), lr=train_args.lr, momentum=0.9, weight_decay=train_args.weight_decay)
@@ -165,7 +163,6 @@ def train_hybrid(natural_config, adversarial_config):
         for images, labels in tqdm(train_natural, desc=f"Epoch {epoch} - Natural"):
             images, labels = images.cuda(), labels.cuda()
             
-            print("first update step")
             optimizer.zero_grad()
             outputs, _ = model(images)
             loss = criterion(outputs, labels)
@@ -173,7 +170,6 @@ def train_hybrid(natural_config, adversarial_config):
             optimizer.step()
 
             # does this twice because we want to do two gradient updates per image
-            print("second update step")
             optimizer.zero_grad()
             outputs, _ = model(images)
             loss = criterion(outputs, labels)
@@ -186,7 +182,6 @@ def train_hybrid(natural_config, adversarial_config):
             images, labels = images.cuda(), labels.cuda()
 
             # first do a normal pass and gradient update step with the natural image (to emulate standard training loop of adversarial training)
-            print("first update step")
             optimizer.zero_grad()
             outputs, _ = model(images)
             loss = criterion(outputs, labels)
@@ -209,7 +204,6 @@ def train_hybrid(natural_config, adversarial_config):
             
             # switch back to train mode to do the gradient update step with the adversarial image
             model.train()
-            print("second update step")
             optimizer.zero_grad()
             outputs, _ = model(adv_images)
             loss = criterion(outputs, labels)
