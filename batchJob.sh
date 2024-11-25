@@ -3,7 +3,7 @@
 # Slurm options, 8 workers, 1 GPU
 #SBATCH -c 8
 #SBATCH --gres=gpu:volta:1
-#SBATCH --output=logs/mixed_training_log_CIFAR10_resnet18_2passesPerImage.out
+#SBATCH --output=logs/twice_natural_training_log_eps0_CIFAR10_resnet18.out
 
 # Loading the required module
 source /etc/profile

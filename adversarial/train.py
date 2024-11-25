@@ -3,7 +3,9 @@ from robustness.datasets import CIFAR
 import torch
 import cox
 from tqdm import tqdm
-OUTPUT_DIR = '/home/gridsan/hmartinez/distribution-shift/models/mixed'
+import random
+import numpy as np
+OUTPUT_DIR = '/home/gridsan/hmartinez/distribution-shift/models/twice_natural'
 NO_ADVERSARIAL_TRAINING_PARAMS = {
     'out_dir': OUTPUT_DIR,
     'adv_train': 0,  # Set to 1 for adversarial training
@@ -15,16 +17,6 @@ NO_ADVERSARIAL_TRAINING_PARAMS = {
     'step_lr_gamma': 0.1,
 }
 
-# ADVERSARIAL_TRAINING_PARAMS = {
-#     'out_dir': OUTPUT_DIR,
-#     'adv_train': 1,  # Set to 1 for adversarial training, #TODO: DO THIS AT 1
-#     'epochs': 150,
-#     'lr': 0.1,
-#     'momentum': 0.9,
-#     'weight_decay': 5e-4,
-#     'step_lr': 50,
-#     'step_lr_gamma': 0.1,
-# }
 # taken from https://robustness.readthedocs.io/en/latest/api/robustness.defaults.html
 
 ATTACK_PARAMS = {
@@ -33,6 +25,14 @@ ATTACK_PARAMS = {
     'attack_lr': 0.1,      # Step size for PGD
     'attack_steps': 7,     # Number of PGD steps
     'random_restarts': 0   # Number of random restarts
+}
+
+NON_ATTACK_PARAMS = {
+    'constraint': '2',      
+    'eps': 0,            # has 0 eps, so no attack, just repeats natural training twice per image
+    'attack_lr': 0.1,      
+    'attack_steps': 7,     
+    'random_restarts': 0   
 }
 
 ADVERSARIAL_TRAINING_PARAMS = {
@@ -47,7 +47,86 @@ ADVERSARIAL_TRAINING_PARAMS = {
     **ATTACK_PARAMS        # Add attack parameters
 }
 
-def train_no_adversarial(config):
+TWICE_NATURAL_TRAINING_PARAMS = {
+    'out_dir': OUTPUT_DIR,
+    'adv_train': 1,        # Enable adversarial training
+    'epochs': 150,
+    'lr': 0.1,
+    'momentum': 0.9,
+    'weight_decay': 5e-4,
+    'step_lr': 50,
+    'step_lr_gamma': 0.1,
+    **NON_ATTACK_PARAMS        # Add (NON)-attack parameters
+}
+
+def create_and_save_dataset(data_path):
+    """
+    Saves the dataset splits for later use in a way compatible with robustness library
+    """
+    # Set all random seeds for reproducibility
+    torch.manual_seed(42)
+    random.seed(42)
+    np.random.seed(42)
+    
+    # Create dataset using robustness CIFAR class
+    dataset = CIFAR(data_path)
+
+    # Create train/test loaders with reproducible settings
+    train_loader, test_loader = dataset.make_loaders(
+        batch_size=128, 
+        workers=8,
+    )
+    
+    # Save the dataset and reproducibility info
+    torch.save({
+        'dataset': dataset,
+        'train_loader': train_loader,
+        'test_loader': test_loader,
+        'seed': 42,
+    }, f"{data_path}/dataset.pt")
+    
+    print(f"Successfully saved dataset to {data_path}/dataset.pt")
+    return dataset
+
+def load_dataset(data_path):
+    """
+    Loads previously saved dataset in a way compatible with robustness library
+    """
+    # Load the saved dataset and reproducibility info
+    checkpoint = torch.load(f"{data_path}/dataset.pt")
+    dataset = checkpoint['dataset']
+    
+    # Restore all random seeds (just in case)
+    torch.manual_seed(checkpoint['seed'])
+    random.seed(checkpoint['seed'])
+    np.random.seed(checkpoint['seed'])
+    
+    # Create new loaders with same reproducibility settings
+    train_loader = checkpoint['train_loader']
+    test_loader = checkpoint['test_loader']
+    
+    print("Successfully loaded data loaders")
+    return dataset, train_loader, test_loader
+
+def train_twice_natural(config, train_loader, val_loader):
+
+    dataset = CIFAR('/home/gridsan/hmartinez/distribution-shift/datasets') # change this as you like
+    print("successfully pulled dataset")
+
+    # create the model
+    model, _ = model_utils.make_and_restore_model(arch='resnet18', dataset=dataset) # apparently, this changes the resnet18 architecture so that it's compatible with CIFAR10
+    print("successfully created barebones model arch")
+    
+    config = cox.utils.Parameters(config)
+    train_args = defaults.check_and_fill_args(config, defaults.TRAINING_ARGS, ds_class="CIFAR")
+    train_args = defaults.check_and_fill_args(train_args, defaults.PGD_ARGS, ds_class="CIFAR")
+    print("successfully created train_args, now proceeding to train the model")
+
+    # train the model
+    model = train.train_model(train_args, model, (train_loader, val_loader))
+    return model
+
+def train_no_adversarial(config, train_loader, val_loader):
     # reference local dataset
     # NOTE: if doing there is no `datasets/cifar-10-python.tar.gz` file, then make sure to run this on a node with download network access
     dataset = CIFAR('/home/gridsan/hmartinez/distribution-shift/datasets') # change this as you like
@@ -57,23 +136,18 @@ def train_no_adversarial(config):
     model, _ = model_utils.make_and_restore_model(arch='resnet18', dataset=dataset) # apparently, this changes the resnet18 architecture so that it's compatible with CIFAR10
     print("successfully created barebones model arch")
 
-    # set up train/val loaders
-    train_loader, val_loader = dataset.make_loaders(batch_size=128, workers=8)
-    print("successfully created data loaders")
-    
     # set up training
     # train_args = defaults.check_and_fill_args(config, defaults.TRAINING_ARGS, ds_class="CIFAR")
     config = cox.utils.Parameters(config)
     train_args = defaults.check_and_fill_args(config, defaults.TRAINING_ARGS, ds_class="CIFAR")
-    # train_args = defaults.check_and_fill_args(train_args, defaults.PGD_ARGS, ds_class="CIFAR")
     print("successfully created train_args, now proceeding to train the model")
 
     # train the model
-    train.train_model(config, model, (train_loader, val_loader))
+    train.train_model(train_args, model, (train_loader, val_loader))
 
     return model
 
-def train_adversarial(config):
+def train_adversarial(config, train_loader, val_loader):
     # NOTE: if doing there is no `datasets/cifar-10-python.tar.gz` file, then make sure to run this on a node with download network access
     dataset = CIFAR('/home/gridsan/hmartinez/distribution-shift/datasets') # change this as you like
     print("successfully pulled dataset")
@@ -81,10 +155,6 @@ def train_adversarial(config):
     # create the model
     model, _ = model_utils.make_and_restore_model(arch='resnet18', dataset=dataset) # apparently, this changes the resnet18 architecture so that it's compatible with CIFAR10
     print("successfully created barebones model arch")
-
-    # set up train/val loaders
-    train_loader, val_loader = dataset.make_loaders(batch_size=128, workers=8)
-    print("successfully created data loaders")
 
     # set up training with both standard and PGD attack parameters
     config = cox.utils.Parameters(config)
@@ -96,8 +166,8 @@ def train_adversarial(config):
     model = train.train_model(train_args, model, (train_loader, val_loader))
     return model
 
-
-def train_hybrid(natural_config, adversarial_config):
+# TODO: re-work this completely once dataset properly indexed
+def train_hybrid(natural_config, adversarial_config, save_path):
     """
     Trains a model with first half of dataset naturally and second half adversarially.
     Each half gets equal number of gradient updates per image.
@@ -111,6 +181,7 @@ def train_hybrid(natural_config, adversarial_config):
     print("Successfully created model architecture")
 
     # Get train/val loaders
+    torch.manual_seed(42) # for reproducibility
     train_loader, val_loader = dataset.make_loaders(batch_size=128, workers=8)
     
     # Split training and validation data in half
@@ -246,6 +317,10 @@ def train_hybrid(natural_config, adversarial_config):
         print(f"Natural Validation Accuracy: {100.*nat_correct/total_nat:.2f}%")
         print(f"Adversarial Validation Accuracy: {100.*adv_correct/total_adv:.2f}%")
         
+    # save the model
+    torch.save(model.state_dict(), save_path)
+    print(f"Successfully saved model to {save_path}")
+
     return model
 
 
@@ -253,4 +328,11 @@ def train_hybrid(natural_config, adversarial_config):
 
 
 if __name__ == "__main__":
-    train_hybrid(NO_ADVERSARIAL_TRAINING_PARAMS, ADVERSARIAL_TRAINING_PARAMS)
+    DATA_PATH = '/home/gridsan/hmartinez/distribution-shift/datasets'
+    # load the dataset loaders
+    dataset, train_loader, test_loader = load_dataset(DATA_PATH)
+    print("successfully loaded dataset, starting to train twice natural model")
+    # train the twice natural model
+    model = train_twice_natural(TWICE_NATURAL_TRAINING_PARAMS, train_loader, test_loader)
+    print("successfully trained twice natural model")
+    
