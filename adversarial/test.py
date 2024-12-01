@@ -3,6 +3,7 @@ import torch
 from tqdm import tqdm
 import numpy as np
 import matplotlib.pyplot as plt
+from train import load_dataset
 
 def test(model_path):
     # set up dataset again
@@ -84,6 +85,7 @@ def compare_losses(natural_model_path, adversarial_model_path):
     
     return natural_losses_train, natural_losses_test, adversarial_losses_train, adversarial_losses_test
 
+# NOTE: This function is no longer in use
 def plot_loss_histogram(natural_losses, adversarial_losses, save_path):
     # Normalize losses to [0,1] range for both models
     def normalize_and_logit(losses):
@@ -140,6 +142,7 @@ def plot_loss_histogram(natural_losses, adversarial_losses, save_path):
 
     return nat_logits, adv_logits
 
+# NOTE: This function is no longer in use
 def plot_single_loss_histogram(losses, save_path, title):
     """
     Plots histogram of losses for a single model's training set.
@@ -186,15 +189,78 @@ def plot_single_loss_histogram(losses, save_path, title):
     
     return losses
 
+def calculate_losses(model_path, data_loader):
+    # set up dataset
+    dataset = datasets.CIFAR("/home/gridsan/hmartinez/distribution-shift/datasets")
+    # load model
+    model, _ = model_utils.make_and_restore_model(arch='resnet18', dataset=dataset, resume_path=model_path)
+    # set model to eval mode
+    model.eval()
 
+    losses = []
+    criterion = torch.nn.CrossEntropyLoss(reduction='none')
+    with torch.no_grad():
+        for images, labels in tqdm(data_loader):
+            images, labels = images.cuda(), labels.cuda()
+            outputs, _ = model(images)
+            loss = criterion(outputs, labels)
+            losses.extend(loss.cpu().tolist())
 
+    return losses
+
+def plot_loss_histogram_test_vs_train(train_losses, test_losses, save_path, title):
+    plt.figure(figsize=(10, 6))
+
+    # calculate normalized phi for each with clipping to prevent infinities
+    def safe_phi(loss):
+        p = np.exp(-loss)
+        # Clip probabilities to avoid infinite logits
+        p = np.clip(p, 1e-15, 1-1e-15)
+        return np.log(p/(1-p))
+    
+    train_phi = [safe_phi(loss) for loss in train_losses]
+    test_phi = [safe_phi(loss) for loss in test_losses]
+    
+    # Plot histograms
+    plt.hist(train_phi, bins=50, alpha=0.5, density=True, label='Train', color='blue')
+    plt.hist(test_phi, bins=50, alpha=0.5, density=True, label='Test', color='red')
+    
+    plt.xlabel('phi(p)', fontsize=12)
+    plt.ylabel('Density', fontsize=12)
+    plt.title(title, fontsize=14, pad=20)
+    plt.grid(True, alpha=0.3)
+    plt.legend(fontsize=10)
+    
+    # Add statistics text for both distributions
+    stats_text = f'Statistics:\n'
+    stats_text += f'Train:\n'
+    stats_text += f'Mean: {np.mean(train_phi):.3f}\n'
+    stats_text += f'Std: {np.std(train_phi):.3f}\n'
+    stats_text += f'Median: {np.median(train_phi):.3f}\n\n'
+    stats_text += f'Test:\n'
+    stats_text += f'Mean: {np.mean(test_phi):.3f}\n'
+    stats_text += f'Std: {np.std(test_phi):.3f}\n'
+    stats_text += f'Median: {np.median(test_phi):.3f}'
+    
+    plt.text(0.95, 0.95, stats_text,
+             transform=plt.gca().transAxes,
+             verticalalignment='top',
+             horizontalalignment='right',
+             bbox=dict(boxstyle='round', facecolor='white', alpha=0.9),
+             fontsize=10)
+    
+    plt.tight_layout()
+    plt.savefig(save_path, dpi=300, bbox_inches='tight')
+    plt.close()
+
+    return None
 
 if __name__ == "__main__":
     MODEL_PATH = "/home/gridsan/hmartinez/distribution-shift/models/natural/149_checkpoint.pt"
     ADVERSARIAL_MODEL_PATH = "/home/gridsan/hmartinez/distribution-shift/models/adversarial/149_checkpoint.pt"
-    # FIGURE_PATH = "/home/gridsan/hmartinez/distribution-shift/adversarial/visualizations/adversarial_vs_natural_loss_150epochs_CIFAR10_resnet18.png"
-    natural_losses_train, natural_losses_test, adversarial_losses_train, adversarial_losses_test = compare_losses(MODEL_PATH, ADVERSARIAL_MODEL_PATH)
-    plot_single_loss_histogram(natural_losses_train, "/home/gridsan/hmartinez/distribution-shift/adversarial/visualizations/natural_train_loss_distribution_150epochs_CIFAR10_resnet18.png", "Natural Model Train Set Loss Distribution")
-    plot_single_loss_histogram(natural_losses_test, "/home/gridsan/hmartinez/distribution-shift/adversarial/visualizations/natural_test_loss_distribution_150epochs_CIFAR10_resnet18.png", "Natural Model Test Set Loss Distribution")
-    plot_single_loss_histogram(adversarial_losses_train, "/home/gridsan/hmartinez/distribution-shift/adversarial/visualizations/adversarial_train_loss_distribution_150epochs_CIFAR10_resnet18.png", "Adversarial Model Train Set Loss Distribution")
-    plot_single_loss_histogram(adversarial_losses_test, "/home/gridsan/hmartinez/distribution-shift/adversarial/visualizations/adversarial_test_loss_distribution_150epochs_CIFAR10_resnet18.png", "Adversarial Model Test Set Loss Distribution")
+    FIGURE_PATH = "/home/gridsan/hmartinez/distribution-shift/adversarial/visualizations/natural_test_vs_train.png"
+    _, train_loader, test_loader = load_dataset("/home/gridsan/hmartinez/distribution-shift/datasets")
+    natural_losses_train = calculate_losses(MODEL_PATH, train_loader)
+    natural_losses_test = calculate_losses(MODEL_PATH, test_loader)
+    plot_loss_histogram_test_vs_train(natural_losses_train, natural_losses_test, FIGURE_PATH, "Natural Losses: Train vs Test Phi Values")
+   
