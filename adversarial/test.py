@@ -5,20 +5,18 @@ import numpy as np
 import matplotlib.pyplot as plt
 from train import load_dataset
 
-def test(model_path):
+def test(model_path, loader):
     # set up dataset again
     dataset = datasets.CIFAR("/home/gridsan/hmartinez/distribution-shift/datasets")
     # load trained model
     model, _ = model_utils.make_and_restore_model(arch='resnet18', dataset=dataset, resume_path=model_path)
-    # create test loaders
-    _, test_loader = dataset.make_loaders(batch_size=128, workers=8, only_val=True)
     # eval
     model.eval()
     
     correct = 0
     total = 0
     with torch.no_grad():
-        for images, labels in tqdm(test_loader):
+        for images, labels in tqdm(loader):
             images, labels = images.cuda(), labels.cuda()
             outputs, _ = model(images)
             _, predicted = outputs.max(1)
@@ -260,7 +258,6 @@ if __name__ == "__main__":
     ADVERSARIAL_MODEL_PATH = "/home/gridsan/hmartinez/distribution-shift/models/adversarial/149_checkpoint.pt"
     FIGURE_PATH = "/home/gridsan/hmartinez/distribution-shift/adversarial/visualizations/natural_test_vs_train.png"
     _, train_loader, test_loader = load_dataset("/home/gridsan/hmartinez/distribution-shift/datasets")
-    natural_losses_train = calculate_losses(MODEL_PATH, train_loader)
-    natural_losses_test = calculate_losses(MODEL_PATH, test_loader)
-    plot_loss_histogram_test_vs_train(natural_losses_train, natural_losses_test, FIGURE_PATH, "Natural Losses: Train vs Test Phi Values")
+    print(f"{len(train_loader.dataset)} many training samples")
+    print(f"{len(test_loader.dataset)} many test samples")
    

@@ -5,7 +5,23 @@ import cox
 from tqdm import tqdm
 import random
 import numpy as np
-OUTPUT_DIR = '/home/gridsan/hmartinez/distribution-shift/models/twice_natural'
+
+import argparse
+
+# Set up argument parser
+parser = argparse.ArgumentParser(description='Training configuration')
+parser.add_argument('--output_dir', type=str,
+                   help='Directory to save model checkpoints')
+parser.add_argument('--eps', type=float, default=0.5,
+                   help='Epsilon value for PGD attack')
+parser.add_argument('--constraint', type=str, default='2',
+                   choices=['2', 'inf'], help='PGD attack constraint (L2 or Linf)')
+
+args = parser.parse_args()
+
+# Update parameters with command line arguments
+OUTPUT_DIR = args.output_dir
+
 NO_ADVERSARIAL_TRAINING_PARAMS = {
     'out_dir': OUTPUT_DIR,
     'adv_train': 0,  # Set to 1 for adversarial training
@@ -20,15 +36,15 @@ NO_ADVERSARIAL_TRAINING_PARAMS = {
 # taken from https://robustness.readthedocs.io/en/latest/api/robustness.defaults.html
 
 ATTACK_PARAMS = {
-    'constraint': '2',      # Use L2 PGD attack
-    'eps': 0.5,            # L2 radius/epsilon
+    'constraint': args.constraint,      # Use L2 PGD attack
+    'eps': args.eps,            # L2 radius/epsilon
     'attack_lr': 0.1,      # Step size for PGD
     'attack_steps': 7,     # Number of PGD steps
     'random_restarts': 0   # Number of random restarts
 }
 
 NON_ATTACK_PARAMS = {
-    'constraint': '2',      
+    'constraint': args.constraint,      
     'eps': 0,            # has 0 eps, so no attack, just repeats natural training twice per image
     'attack_lr': 0.1,      
     'attack_steps': 7,     
@@ -172,6 +188,7 @@ def train_hybrid(natural_config, adversarial_config, save_path):
     Trains a model with first half of dataset naturally and second half adversarially.
     Each half gets equal number of gradient updates per image.
     """
+    raise NotImplementedError("This function is not yet implemented")
     # Set up dataset
     dataset = CIFAR('/home/gridsan/hmartinez/distribution-shift/datasets')
     print("Successfully pulled dataset")
@@ -328,11 +345,13 @@ def train_hybrid(natural_config, adversarial_config, save_path):
 
 
 if __name__ == "__main__":
+    print(f"Loading dataset")
     DATA_PATH = '/home/gridsan/hmartinez/distribution-shift/datasets'
     # load the dataset loaders
     dataset, train_loader, test_loader = load_dataset(DATA_PATH)
-    print("successfully loaded dataset, starting to train twice natural model")
-    # train the twice natural model
-    model = train_twice_natural(TWICE_NATURAL_TRAINING_PARAMS, train_loader, test_loader)
-    print("successfully trained twice natural model")
+    print(f"successfully loaded dataset, starting to train adversarial model: Norm: {args.constraint} Eps: {args.eps}")
+    # train the adversarial model
+    model = train_adversarial(ADVERSARIAL_TRAINING_PARAMS, train_loader, test_loader)
+    print(f"successfully trained adversarial model: Norm: {args.constraint} Eps: {args.eps}")
+    print(f"saving model to {OUTPUT_DIR}")
     
