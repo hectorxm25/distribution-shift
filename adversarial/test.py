@@ -254,10 +254,10 @@ def plot_loss_histogram_test_vs_train(train_losses, test_losses, save_path, titl
     return None
 
 if __name__ == "__main__":
-    MODEL_PATH = "/home/gridsan/hmartinez/distribution-shift/models/natural/149_checkpoint.pt"
-    ADVERSARIAL_MODEL_PATH = "/home/gridsan/hmartinez/distribution-shift/models/adversarial/149_checkpoint.pt"
-    FIGURE_PATH = "/home/gridsan/hmartinez/distribution-shift/adversarial/visualizations/natural_test_vs_train.png"
+    ADVERSARIAL_MODEL_PATH = "/home/gridsan/hmartinez/distribution-shift/models/adversarial/0.0625epsNorm2/149_checkpoint.pt"
+    FIGURE_PATH = "/home/gridsan/hmartinez/distribution-shift/adversarial/visualizations/adv_0.0625epsNorm2_test_vs_train.png"
     _, train_loader, test_loader = load_dataset("/home/gridsan/hmartinez/distribution-shift/datasets")
-    print(f"{len(train_loader.dataset)} many training samples")
-    print(f"{len(test_loader.dataset)} many test samples")
+    train_losses = calculate_losses(ADVERSARIAL_MODEL_PATH, train_loader)
+    test_losses = calculate_losses(ADVERSARIAL_MODEL_PATH, test_loader)
+    plot_loss_histogram_test_vs_train(train_losses, test_losses, FIGURE_PATH, "Adversarial Model 0.0625 eps Norm2")
    
