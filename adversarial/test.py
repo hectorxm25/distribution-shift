@@ -3,7 +3,7 @@ import torch
 from tqdm import tqdm
 import numpy as np
 import matplotlib.pyplot as plt
-from train import load_dataset
+from train import load_dataset, ModelWrapper
 
 def test(model_path, loader):
     # set up dataset again
@@ -206,6 +206,30 @@ def calculate_losses(model_path, data_loader):
 
     return losses
 
+def calculate_losses_wrapped(model_path, data_loader):
+    # set up dataset
+    dataset = datasets.CIFAR("/home/gridsan/hmartinez/distribution-shift/datasets")
+    # create base model
+    model, _ = model_utils.make_and_restore_model(arch='resnet18', dataset=dataset)
+    # wrap model
+    model = ModelWrapper(model)
+    # load weights
+    model.load_state_dict(torch.load(model_path))
+    # set model to eval mode and cuda
+    model = model.cuda()
+    model.eval()
+
+    losses = []
+    criterion = torch.nn.CrossEntropyLoss(reduction='none')
+    with torch.no_grad():
+        for images, labels in tqdm(data_loader):
+            images, labels = images.cuda(), labels.cuda()
+            outputs = model(images)
+            loss = criterion(outputs, labels)
+            losses.extend(loss.cpu().tolist())
+
+    return losses
+
 def plot_loss_histogram_test_vs_train(train_losses, test_losses, save_path, title):
     plt.figure(figsize=(10, 6))
 
@@ -254,10 +278,10 @@ def plot_loss_histogram_test_vs_train(train_losses, test_losses, save_path, titl
     return None
 
 if __name__ == "__main__":
-    ADVERSARIAL_MODEL_PATH = "/home/gridsan/hmartinez/distribution-shift/models/adversarial/0.031epsNormInf/149_checkpoint.pt"
-    FIGURE_PATH = "/home/gridsan/hmartinez/distribution-shift/adversarial/visualizations/adv_0.031epsNormInf_test_vs_train.png"
+    ADVERSARIAL_MODEL_PATH = "/home/gridsan/hmartinez/distribution-shift/models/adversarial/TRADES/6betaNorm2.pt"
+    FIGURE_PATH = "/home/gridsan/hmartinez/distribution-shift/adversarial/visualizations/adv_TRADES_6betaNorm2_test_vs_train.png"
     _, train_loader, test_loader = load_dataset("/home/gridsan/hmartinez/distribution-shift/datasets")
-    train_losses = calculate_losses(ADVERSARIAL_MODEL_PATH, train_loader)
-    test_losses = calculate_losses(ADVERSARIAL_MODEL_PATH, test_loader)
-    plot_loss_histogram_test_vs_train(train_losses, test_losses, FIGURE_PATH, "Adversarial Model 0.031 eps NormInf")
+    train_losses = calculate_losses_wrapped(ADVERSARIAL_MODEL_PATH, train_loader)
+    test_losses = calculate_losses_wrapped(ADVERSARIAL_MODEL_PATH, test_loader)
+    plot_loss_histogram_test_vs_train(train_losses, test_losses, FIGURE_PATH, "Adversarial Model TRADES 6beta Norm2")
    

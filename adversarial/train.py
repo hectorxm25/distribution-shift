@@ -120,6 +120,7 @@ def train_adversarial(config, train_loader, val_loader):
 def train_trades(config, train_loader, val_loader, save_path):
     print(f"For records, config is {config}")
     assert config['attack_type'] == 'trades' or config['attack_type'] == 'TRADES', "This function is only for TRADES training"
+    assert config['out_dir'][-3:] == '.pt', "out_dir must be specified with a .pt extension for this function"
     # Set up dataset
     dataset = CIFAR('/home/gridsan/hmartinez/distribution-shift/datasets')
     print("Successfully pulled dataset")
@@ -159,7 +160,16 @@ def train_trades(config, train_loader, val_loader, save_path):
                              distance='l_2' if config['constraint']=='2' else 'l_inf')
             
             loss.backward()
+
+            # add gradient clipping
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+
+             # check if NaN loss
+            if torch.isnan(loss):
+                print("NaN loss detected")
+                raise ValueError("NaN loss detected")
             optimizer.step()
+
             
             # Update progress bar with loss info
             train_loop.set_postfix(loss=f'{loss.item():.4f}')

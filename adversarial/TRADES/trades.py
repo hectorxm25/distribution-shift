@@ -63,7 +63,7 @@ def trades_loss(model,
             
             # Safe gradient normalization
             grad_norms = delta.grad.view(batch_size, -1).norm(p=2, dim=1)
-            grad_norms = torch.clamp(grad_norms, min=1e-6)  # Prevent division by zero
+            grad_norms = torch.clamp(grad_norms, min=1e-4)  # Prevent division by zero
             delta.grad.div_(grad_norms.view(-1, 1, 1, 1))
             
             optimizer_delta.step()
