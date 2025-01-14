@@ -19,10 +19,10 @@ DATASET_PATH = "/home/gridsan/hmartinez/distribution-shift/datasets"
 OUTPUT_DIR = "/home/gridsan/hmartinez/distribution-shift/adversarial/temp"
 
 ATTACK_PARAMS = {
-        'constraint': '2',      # Use L2 PGD attack
-        'eps': 0.5,            # L2 radius/epsilon
+        'constraint': 'inf',      # Use L2 PGD attack
+        'eps': 0.031*25,            # L2 radius/epsilon
         'step_size': 0.1,      # Changed from 'attack_lr' to 'step_size'
-        'iterations': 7,      # Changed from 'attack_steps' to 'iterations'
+        'iterations': 10,      # Changed from 'attack_steps' to 'iterations'
         'random_start': False,  # Changed from 'random_restarts' to 'random_start'
     }
 
@@ -63,6 +63,55 @@ def visualize_dataset_images(data_loader, image_path):
     return natural_image_tensor.numpy(), label, human_readable
 
 
+def create_masks_batch(config, model_path, images, labels):
+    """
+    Creates masks for a batch of images and returns both images and predictions
+    
+    Args:
+        config (dict): Attack configuration parameters
+        model_path (str): Path to the trained model
+        images (torch.Tensor): Batch of images with shape [batch_size, channels, height, width]
+        labels (torch.Tensor): Batch of labels with shape [batch_size]
+        
+    Returns:
+        tuple: Original tensors, adversarial tensors, mask tensors, gradient mask tensors,
+              original labels, and predicted labels for adversarial images
+    """
+    # Create dataset instance first
+    dataset = CIFAR(DATASET_PATH)
+    
+    # Load dataset and model
+    model, _ = model_utils.make_and_restore_model(arch='resnet18', dataset=dataset, resume_path=model_path)
+    model.eval()
+
+    # Move to GPU
+    images = images.cuda()
+    labels = labels.cuda()
+
+    # Generate adversarial examples
+    _, adv_images = model(images, labels, make_adv=True, **config)
+    
+    # Get model predictions for adversarial images
+    with torch.no_grad():
+        adv_output, _ = model(adv_images)
+        adv_predicted_labels = adv_output.argmax(dim=1).cpu()
+
+    # Convert back to CPU and numpy
+    original_images = images.cpu().numpy()
+    adversarial_images = adv_images.cpu().detach().numpy()
+    
+    # Generate masks by taking the difference
+    masks = adversarial_images - original_images
+    gradient_masks = adversarial_images - 1.5*original_images
+
+    # Convert to tensors
+    original_tensors = torch.from_numpy(original_images)
+    adversarial_tensors = torch.from_numpy(adversarial_images)
+    mask_tensors = torch.from_numpy(masks)
+    gradient_mask_tensors = torch.from_numpy(gradient_masks)
+
+    return (original_tensors, adversarial_tensors, mask_tensors, 
+            gradient_mask_tensors, labels.cpu(), adv_predicted_labels)
 
 def create_mask(config, model_path, loader, image_path):
     """
@@ -101,7 +150,7 @@ def create_mask(config, model_path, loader, image_path):
     
     # Generate mask by taking the difference
     mask = adversarial_image - original_image
-    gradient_mask = adversarial_image - 2*original_image
+    gradient_mask = adversarial_image - 1.5*original_image
 
     # Save original, adversarial and mask images
     original_tensor = torch.from_numpy(original_image)
@@ -109,12 +158,41 @@ def create_mask(config, model_path, loader, image_path):
     mask_tensor = torch.from_numpy(mask)
     gradient_mask_tensor = torch.from_numpy(gradient_mask)
 
-    vutils.save_image(original_tensor, image_path + '/original.png', normalize=True)
-    vutils.save_image(adversarial_tensor, image_path + '/adversarial.png', normalize=True)
-    vutils.save_image(mask_tensor, image_path + '/mask.png', normalize=True)
-    vutils.save_image(gradient_mask_tensor, image_path + '/gradient_mask.png', normalize=True)
+    # FOR DEBUGGING ONLY 
+
+    # vutils.save_image(original_tensor, image_path + '/original.png', normalize=True)
+    # vutils.save_image(adversarial_tensor, image_path + '/adversarial.png', normalize=True)
+    # vutils.save_image(mask_tensor, image_path + '/mask.png', normalize=True)
+    # vutils.save_image(gradient_mask_tensor, image_path + '/gradient_mask.png', normalize=True)
+
     return gradient_mask, mask, original_image, adversarial_image, label
 
+def inference_mask_batch(mask_images, model_path):
+    """
+    Inference a batch of mask images through the model and get predictions for the entire batch
+    
+    Args:
+        mask_images (numpy.ndarray): Batch of mask images with shape [batch_size, channels, height, width]
+        model_path (str): Path to the trained model checkpoint
+        
+    Returns:
+        list: Predicted labels for each mask image in the batch
+    """
+    # Load dataset and model
+    dataset = CIFAR(DATASET_PATH)
+    model, _ = model_utils.make_and_restore_model(arch='resnet18', dataset=dataset, resume_path=model_path)
+    model.eval()
+
+
+    # Move to GPU
+    mask_tensor = mask_tensor.cuda()
+
+    # Get model predictions for batch
+    with torch.no_grad():
+        output, _ = model(mask_tensor)
+        predicted_labels = output.argmax(dim=1).cpu().tolist()
+
+    return predicted_labels
 
 def inference_mask(mask_image, model_path):
     """
@@ -142,6 +220,7 @@ def inference_mask(mask_image, model_path):
 
 
 # NAIVE APPROACH, JUST CHECKS IF THE MODEL CAN CLASSIFY CORRECTLY ONLY GIVEN THE MASK OF THE NATURAL IMAGE
+# ACHIEVED ONLY 10% ACCURACY
 def check_mask_accuracy(loader, model_path):
     """
     Takes a data loader and model path, creates masks for all images and checks model accuracy on masks
@@ -166,10 +245,11 @@ def check_mask_accuracy(loader, model_path):
             label = labels[i]
             
             # Generate masks using create_mask function
-            _, mask, _, _, _ = create_mask(ATTACK_PARAMS, model_path, [(image, label)], OUTPUT_DIR)
+            gradient_mask, mask, _, _, _ = create_mask(ATTACK_PARAMS, model_path, [(image, label)], OUTPUT_DIR)
             
-            # Get predictions on mask
+            # Get predictions on mask or gradient mask
             mask_pred = inference_mask(mask, model_path)
+            # mask_pred = inference_mask(gradient_mask, model_path)
             
             # Check if prediction matches the true label
             if mask_pred == label.item():
@@ -181,7 +261,61 @@ def check_mask_accuracy(loader, model_path):
     
     return accuracy
 
+
+def check_mask_accuracy_both_batch(loader, model_path):
+    """
+    Takes a data loader and model path, creates masks for all images and checks model accuracy on masks
+    for both natural and adversarial labels, processing images in batches.
+    Args:
+        loader: DataLoader containing images to create masks from
+        model_path: Path to the trained model checkpoint
+    Returns:
+        tuple: (natural_accuracy, adversarial_accuracy) - Accuracy of model predictions on mask images
+               for natural and adversarial labels respectively
+    """
+    # Load dataset and model
+    dataset = CIFAR(DATASET_PATH)
+    model, _ = model_utils.make_and_restore_model(arch='resnet18', dataset=dataset, resume_path=model_path)
+    model.eval()
+
+    natural_correct = 0
+    adversarial_correct = 0
+    total = 0
+
+    for images, labels in loader:
+        # Generate masks using create_masks_batch function
+        _, _, masks, _, orig_labels, adv_labels = create_masks_batch(ATTACK_PARAMS, model_path, images, labels)
+        print("orig_labels: ", orig_labels)
+        print("adv_labels: ", adv_labels)
+    
+        # Get predictions on masks in batch
+        with torch.no_grad():
+            model_output, _ = model(masks)
+            mask_preds = model_output.argmax(dim=1)
+            
+        # Compare predictions with both natural and adversarial labels
+        natural_correct += (mask_preds == orig_labels).sum().item()
+        adversarial_correct += (mask_preds == adv_labels).sum().item()
+        total += len(labels)
+
+    natural_accuracy = natural_correct / total
+    adversarial_accuracy = adversarial_correct / total
+    
+    print(f"Natural Mask Inference Accuracy: {natural_accuracy * 100:.2f}%")
+    print(f"Adversarial Mask Inference Accuracy: {adversarial_accuracy * 100:.2f}%")
+    
+    return natural_accuracy, adversarial_accuracy
+
+
+
 if __name__ == "__main__":
     _, _, test_loader = load_dataset(DATASET_PATH)
-    accuracy = check_mask_accuracy(test_loader, "/home/gridsan/hmartinez/distribution-shift/models/natural/149_checkpoint.pt")
-    print("accuracy: ", accuracy)
+
+    # quick one-batch test
+    for images, labels in test_loader:
+        one_batch_loader = [(images, labels)]
+        break
+
+    natural_accuracy, adversarial_accuracy = check_mask_accuracy_both_batch(one_batch_loader, "/home/gridsan/hmartinez/distribution-shift/models/natural/149_checkpoint.pt")
+    print("natural accuracy: ", natural_accuracy)
+    print("adversarial accuracy: ", adversarial_accuracy)
