@@ -288,10 +288,16 @@ def check_mask_accuracy_both_batch(loader, model_path):
         print("orig_labels: ", orig_labels)
         print("adv_labels: ", adv_labels)
     
+        # move masks to GPU
+        masks = masks.cuda()
+
         # Get predictions on masks in batch
         with torch.no_grad():
             model_output, _ = model(masks)
             mask_preds = model_output.argmax(dim=1)
+        
+        # Move predictions to CPU for comparison
+        mask_preds = mask_preds.cpu()
             
         # Compare predictions with both natural and adversarial labels
         natural_correct += (mask_preds == orig_labels).sum().item()
@@ -310,12 +316,13 @@ def check_mask_accuracy_both_batch(loader, model_path):
 
 if __name__ == "__main__":
     _, _, test_loader = load_dataset(DATASET_PATH)
-
-    # quick one-batch test
-    for images, labels in test_loader:
-        one_batch_loader = [(images, labels)]
-        break
-
-    natural_accuracy, adversarial_accuracy = check_mask_accuracy_both_batch(one_batch_loader, "/home/gridsan/hmartinez/distribution-shift/models/natural/149_checkpoint.pt")
+    print("Loaded test loader of size: ", len(test_loader))
+    # # quick one-batch test
+    # for images, labels in test_loader:
+    #     one_batch_loader = [(images, labels)]
+    #     break
+    # print("Created a one-batch loader of size: ", len(one_batch_loader))
+    print("Running accuracy check...")
+    natural_accuracy, adversarial_accuracy = check_mask_accuracy_both_batch(test_loader, "/home/gridsan/hmartinez/distribution-shift/models/natural/149_checkpoint.pt")
     print("natural accuracy: ", natural_accuracy)
     print("adversarial accuracy: ", adversarial_accuracy)
