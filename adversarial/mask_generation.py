@@ -220,7 +220,7 @@ def inference_mask(mask_image, model_path):
 
 
 # NAIVE APPROACH, JUST CHECKS IF THE MODEL CAN CLASSIFY CORRECTLY ONLY GIVEN THE MASK OF THE NATURAL IMAGE
-# ACHIEVED ONLY 10% ACCURACY
+# ACHIEVED ONLY 10% ACCURACY, 97% accurate on adversarial labels
 def check_mask_accuracy(loader, model_path):
     """
     Takes a data loader and model path, creates masks for all images and checks model accuracy on masks
@@ -315,14 +315,14 @@ def check_mask_accuracy_both_batch(loader, model_path):
 
 
 if __name__ == "__main__":
-    _, _, test_loader = load_dataset(DATASET_PATH)
-    print("Loaded test loader of size: ", len(test_loader))
+    _, training_loader, test_loader = load_dataset(DATASET_PATH)
+    print("Loaded test loader of size: ", len(training_loader))
     # # quick one-batch test
     # for images, labels in test_loader:
     #     one_batch_loader = [(images, labels)]
     #     break
     # print("Created a one-batch loader of size: ", len(one_batch_loader))
     print("Running accuracy check...")
-    natural_accuracy, adversarial_accuracy = check_mask_accuracy_both_batch(test_loader, "/home/gridsan/hmartinez/distribution-shift/models/natural/149_checkpoint.pt")
+    natural_accuracy, adversarial_accuracy = check_mask_accuracy_both_batch(training_loader, "/home/gridsan/hmartinez/distribution-shift/models/natural/149_checkpoint.pt")
     print("natural accuracy: ", natural_accuracy)
     print("adversarial accuracy: ", adversarial_accuracy)

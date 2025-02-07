@@ -4,6 +4,30 @@ from tqdm import tqdm
 import numpy as np
 import matplotlib.pyplot as plt
 from train import load_dataset, ModelWrapper
+import mask_generation as mask_gen
+
+## Global configs
+OUTPUT_DIR = "/home/gridsan/hmartinez/distribution-shift/adversarial/temp"
+
+ATTACK_PARAMS = {
+        'constraint': 'inf',      # Use L2 PGD attack
+        'eps': 0.031*25,            # L2 radius/epsilon
+        'step_size': 0.1,      # Changed from 'attack_lr' to 'step_size'
+        'iterations': 10,      # Changed from 'attack_steps' to 'iterations'
+        'random_start': False,  # Changed from 'random_restarts' to 'random_start'
+    }
+
+ADVERSARIAL_TRAINING_PARAMS = {
+        'out_dir': OUTPUT_DIR,
+        'adv_train': 1,        # Enable adversarial training
+        'epochs': 150, # TODO: maybe change this in the future to see less overfitting in our experiments
+        'lr': 0.1,
+        'momentum': 0.9,
+        'weight_decay': 5e-4,
+        'step_lr': 50,
+        'step_lr_gamma': 0.1,
+        **ATTACK_PARAMS        # Add attack parameters
+    }
 
 def test(model_path, loader):
     # set up dataset again
@@ -29,6 +53,9 @@ def test(model_path, loader):
     return accuracy
 
 def compare_losses(natural_model_path, adversarial_model_path):
+    """
+    compares losses between natural and adversarial models
+    """
     # set up dataset
     dataset = datasets.CIFAR("/home/gridsan/hmartinez/distribution-shift/datasets")
     train_loader, test_loader = dataset.make_loaders(batch_size=128, workers=8)
@@ -206,6 +233,67 @@ def calculate_losses(model_path, data_loader):
 
     return losses
 
+def get_natural_and_mask_confidence(model_path, images, labels, masks, adv_labels, apply_softmax=False):
+    """
+    Gets the confidence for the natural and mask images along both the natural and adversarial labels
+    apply_softmax: if True, applies softmax to the outputs
+    """
+    # set up dataset
+    dataset = datasets.CIFAR("/home/gridsan/hmartinez/distribution-shift/datasets")
+    # load model
+    model, _ = model_utils.make_and_restore_model(arch='resnet18', dataset=dataset, resume_path=model_path)
+    # Set device
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    # set model to eval mode
+    model.eval()
+
+    natural_confidence = []
+    # get natural confidence
+    with torch.no_grad():
+        outputs, _ = model(images.to(device))
+        if apply_softmax:
+            outputs = torch.nn.functional.softmax(outputs, dim=1)
+        # outputs now is a list of lists, each inner list is the confidence for each class, either raw logits or softmaxed
+        outputs = outputs.cpu()
+        for i in range(len(outputs)):
+            natural_confidence.append(outputs[i][labels[i]]) # now natural confidence is a list of confidence values for the natural label with the natural images
+    
+    mask_confidence = []
+    # get mask confidence
+    with torch.no_grad():
+        outputs, _ = model(masks.to(device))
+        if apply_softmax:
+            outputs = torch.nn.functional.softmax(outputs, dim=1)
+        outputs = outputs.cpu()
+        for i in range(len(outputs)):
+            mask_confidence.append(outputs[i][labels[i]]) # now mask confidence is a list of confidence values for natural label with the mask images
+    
+    mask_adv_confidence = []
+    # get mask confidence for the adversarial labels
+    with torch.no_grad():
+        outputs, _ = model(masks.to(device))
+        if apply_softmax:
+            outputs = torch.nn.functional.softmax(outputs, dim=1)
+        outputs = outputs.cpu()
+        for i in range(len(outputs)):
+            mask_adv_confidence.append(outputs[i][adv_labels[i]]) # now mask adversarial confidence is a list of confidence values for adversarial label with the mask images
+
+
+    # NOTE: Might not provide much information, but kept for completeness
+    natural_adv_confidence = []
+    # get natural confidence for the adversarial labels
+    with torch.no_grad():
+        outputs, _ = model(images.to(device))
+        if apply_softmax:
+            outputs = torch.nn.functional.softmax(outputs, dim=1)
+        outputs = outputs.cpu()
+        for i in range(len(outputs)):
+            natural_adv_confidence.append(outputs[i][adv_labels[i]]) # now natural adversarial confidence is a list of confidence values for adversarial label with the natural images
+
+    return natural_confidence, mask_confidence, mask_adv_confidence, natural_adv_confidence
+    
+    
+
 def calculate_losses_wrapped(model_path, data_loader):
     # set up dataset
     dataset = datasets.CIFAR("/home/gridsan/hmartinez/distribution-shift/datasets")
@@ -277,11 +365,78 @@ def plot_loss_histogram_test_vs_train(train_losses, test_losses, save_path, titl
 
     return None
 
+def plot__histogram_natural_vs_mask(natural_losses, mask_losses, save_path, title):
+    """
+    Plots histogram of losses for natural and mask models. Uses the phi function to normalize the losses.
+    Takes in the losses from both the natural and mask images (not maskED images)
+    The loss could be from both the natural and adversarial labels and it could come from models
+    trained or not trained on the mask images. Will do experiments for both. 
+    """
+
+    plt.figure(figsize=(10, 6))
+
+    # calculate normalized phi for each with more aggressive clipping to prevent infinities
+    def safe_phi(loss):
+        p = np.exp(-loss)
+        # Clip probabilities to avoid infinite logits
+        p = np.clip(p, 1e-7, 1-1e-7)
+        return np.log(p/(1-p))
+    
+    natural_phi = [safe_phi(loss) for loss in natural_losses]
+    mask_phi = [safe_phi(loss) for loss in mask_losses]
+    
+    # Plot histograms
+    plt.hist(natural_phi, bins=50, alpha=0.5, density=True, label='Natural', color='blue')
+    plt.hist(mask_phi, bins=50, alpha=0.5, density=True, label='Mask', color='red')
+    
+    plt.xlabel('phi(p)', fontsize=12)
+    plt.ylabel('Density', fontsize=12)
+    plt.title(title, fontsize=14, pad=20)
+    plt.grid(True, alpha=0.3)
+    plt.legend(fontsize=10)
+    
+    # Add statistics text for both distributions
+    stats_text = f'Statistics:\n'
+    stats_text += f'Natural:\n'
+    stats_text += f'Mean: {np.mean(natural_phi):.3f}\n'
+    stats_text += f'Std: {np.std(natural_phi):.3f}\n'
+    stats_text += f'Median: {np.median(natural_phi):.3f}\n\n'
+    stats_text += f'Mask:\n'
+    stats_text += f'Mean: {np.mean(mask_phi):.3f}\n'
+    stats_text += f'Std: {np.std(mask_phi):.3f}\n'
+    stats_text += f'Median: {np.median(mask_phi):.3f}'
+    
+    plt.text(0.95, 0.95, stats_text,
+             transform=plt.gca().transAxes,
+             verticalalignment='top',
+             horizontalalignment='right',
+             bbox=dict(boxstyle='round', facecolor='white', alpha=0.9),
+             fontsize=10)
+    
+    plt.tight_layout()
+    plt.savefig(save_path, dpi=300, bbox_inches='tight')
+    plt.close()
+
+    return None
+
 if __name__ == "__main__":
-    ADVERSARIAL_MODEL_PATH = "/home/gridsan/hmartinez/distribution-shift/models/adversarial/TRADES/6betaNorm2.pt"
-    FIGURE_PATH = "/home/gridsan/hmartinez/distribution-shift/adversarial/visualizations/adv_TRADES_6betaNorm2_test_vs_train.png"
-    _, train_loader, test_loader = load_dataset("/home/gridsan/hmartinez/distribution-shift/datasets")
-    train_losses = calculate_losses_wrapped(ADVERSARIAL_MODEL_PATH, train_loader)
-    test_losses = calculate_losses_wrapped(ADVERSARIAL_MODEL_PATH, test_loader)
-    plot_loss_histogram_test_vs_train(train_losses, test_losses, FIGURE_PATH, "Adversarial Model TRADES 6beta Norm2")
-   
+    MODEL_PATH = "/home/gridsan/hmartinez/distribution-shift/models/natural/149_checkpoint.pt"
+    FIGURE_PATH1 = "/home/gridsan/hmartinez/distribution-shift/adversarial/visualizations/maskLossPlots/mask_loss_testloader_0.031*25eps_0.1stepsize_naturalConfidence_vs_mask_adversarialConfidenceSoftmaxed.png"
+    FIGURE_PATH2 = "/home/gridsan/hmartinez/distribution-shift/adversarial/visualizations/maskLossPlots/mask_loss_testloader_0.031*25eps_0.1stepsize_naturalConfidence_vs_mask_naturalConfidenceSoftmaxed.png"
+    FIGURE_PATH3 = "/home/gridsan/hmartinez/distribution-shift/adversarial/visualizations/maskLossPlots/mask_loss_testloader_0.031*25eps_0.1stepsize_adversarialConfidence_vs_mask_adversarialConfidenceSoftmaxed.png"
+    FIGURE_PATH4 = "/home/gridsan/hmartinez/distribution-shift/adversarial/visualizations/maskLossPlots/mask_loss_testloader_0.031*25eps_0.1stepsize_adversarialConfidence_vs_mask_naturalConfidenceSoftmaxed.png"
+    _, _, test_loader = load_dataset("/home/gridsan/hmartinez/distribution-shift/datasets")
+    # test on the first batch of the test loader
+    natural_images, mask_images, natural_labels, adv_labels = None, None, None, None
+    print("Creating masks...")
+    for images, labels in test_loader:
+        natural_images, _, mask_images, _, natural_labels, adv_labels = mask_gen.create_masks_batch(ATTACK_PARAMS, MODEL_PATH, images, labels)
+        print("Masks created")
+        break
+    print("Getting confidence...")
+    natural_confidence, mask_confidence, mask_adv_confidence, natural_adv_confidence = get_natural_and_mask_confidence(MODEL_PATH, natural_images, natural_labels, mask_images, adv_labels, apply_softmax=True)
+    print("Confidence obtained, creating plots...")
+    plot_loss_histogram_natural_vs_mask(natural_confidence, mask_adv_confidence, FIGURE_PATH1, "Natural Confidence Softmaxed vs Mask Adversarial Confidence Softmaxed (Normalized), N=128")
+    plot_loss_histogram_natural_vs_mask(natural_confidence, mask_confidence, FIGURE_PATH2, "Natural Confidence Softmaxed vs Mask Natural Confidence Softmaxed (Normalized), N=128")
+    plot_loss_histogram_natural_vs_mask(natural_adv_confidence, mask_adv_confidence, FIGURE_PATH3, "Adversarial Confidence Softmaxed vs Mask Adversarial Confidence Softmaxed (Normalized), N=128")
+    plot_loss_histogram_natural_vs_mask(natural_adv_confidence, mask_confidence, FIGURE_PATH4, "Adversarial Confidence Softmaxed vs Mask Natural Confidence Softmaxed (Normalized), N=128")
