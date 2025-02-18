@@ -12,7 +12,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from robustness import model_utils, datasets, train, defaults
 from robustness.datasets import CIFAR
-from train import load_dataset
+from utils import load_dataset
 
 # global configs
 DATASET_PATH = "/home/gridsan/hmartinez/distribution-shift/datasets"
@@ -62,6 +62,26 @@ def visualize_dataset_images(data_loader, image_path):
     
     return natural_image_tensor.numpy(), label, human_readable
 
+
+def create_masks_loader(config, model_path, loader):
+    """
+    Creates masks for a loader of images and returns both masks, natural labels, and adversarial labels in list of tensor forms
+    """
+    mask_tensors_list = []
+    labels_list = []
+    adv_labels_list = []
+    print(f"Creating masks for training data, we have {len(loader)} batches")
+    print(f"This might take a while...")
+    for batch in loader:
+        images, labels = batch
+        _,_,mask_tensors,_, mask_labels, adv_predicted_labels = create_masks_batch(config, model_path, images, labels)
+        mask_tensors_list.append(mask_tensors)
+        labels_list.append(mask_labels)
+        adv_labels_list.append(adv_predicted_labels)
+    print(f"Successfully created masks for training data")
+
+    return mask_tensors_list, labels_list, adv_labels_list
+    
 
 def create_masks_batch(config, model_path, images, labels):
     """

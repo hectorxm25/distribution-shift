@@ -8,7 +8,7 @@ import random
 import numpy as np
 from TRADES.trades import trades_loss
 import argparse
-
+import mask_generation as mask_gen
 
 def create_and_save_dataset(data_path):
     """
@@ -58,6 +58,92 @@ def load_dataset(data_path):
     
     print("Successfully loaded data loaders")
     return dataset, train_loader, test_loader
+
+def train_with_masks(config, model_path, mask_tensors_list, labels_list, adv_labels_list, save_path, max_epochs=2):
+    """
+    Trains a model with masks and saves the weights every epoch (default 2)
+    Uses the same training config as the natural training
+    Uses natural labels and adversarial labels for training, so we end up with 
+    2 models per epoch (one on natural labels, one on adversarial labels)
+
+    Args:
+        config: training config
+        model_path: path to the model to extend training of
+        mask_tensors_list: list of (each element being a batch) 
+            mask tensors to train on, typically gotten from mask_generation.py
+        labels: natural labels, from mask_generation.py
+        adv_labels: adversarial labels, from mask_generation.py
+        save_path: path to save the model weights
+        max_epochs: number of epochs to train for
+    """
+    print(f"Extending training of {model_path} with masks for {max_epochs} epochs, saving at every epoch for both natural and adversarial training")
+    print(f"We have {len(mask_tensors_list)} batches")
+    print(f"Our config is {config}")
+    # set up model
+    dataset = CIFAR('/home/gridsan/hmartinez/distribution-shift/datasets')
+    model, _ = model_utils.make_and_restore_model(arch='resnet18', dataset=dataset, resume_path=model_path)
+    model.cuda()
+    # set up optimizer
+    optimizer = torch.optim.SGD(model.parameters(),
+                                 lr=config['lr'], momentum=config['momentum'], weight_decay=config['weight_decay'])
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer,
+                                                 step_size=config['step_lr'], gamma=config['step_lr_gamma'])
+    
+    # train on the mask images for max_epochs
+    model.train()
+    print(f"Starting natural label training")
+    for epoch in range(max_epochs):
+        # defines a train loop that iterates over the mask tensors list and
+        # NATURAL LABELS
+        natural_label_train_loop = tqdm(zip(mask_tensors_list, labels_list), desc=f'Epoch {epoch+1}/{max_epochs} (Train)')
+        # main natural label training loop
+        for mask_tensors, labels in natural_label_train_loop:
+            mask_tensors = mask_tensors.cuda()
+            labels = labels.cuda()
+            optimizer.zero_grad()
+            outputs, _ = model(mask_tensors)
+            loss = F.cross_entropy(outputs, labels)
+            loss.backward()
+            optimizer.step()
+            # update progress bar with loss info
+            natural_label_train_loop.set_postfix(loss=f'{loss.item():.4f}')
+
+         # after single batch training loop, update scheduler
+        scheduler.step()
+        # save weights for the end of the epoch
+        torch.save({'state_dict': model.state_dict()}, f"{save_path}/mask_model_epoch_{epoch+1}_natural.pt")
+
+
+    # might be redundant, but set up adv_model
+    adv_model, _ = model_utils.make_and_restore_model(arch='resnet18',
+                                                   dataset=dataset, resume_path=model_path)
+    adv_model.cuda()
+    # reset scheduler by making a new one, no aliasing errors, same with optimizer
+    optimizer_adv = torch.optim.SGD(adv_model.parameters(),
+                                 lr=config['lr'], momentum=config['momentum'], weight_decay=config['weight_decay'])
+    scheduler_adv = torch.optim.lr_scheduler.StepLR(optimizer_adv,
+                                                 step_size=config['step_lr'], gamma=config['step_lr_gamma'])
+    # now train on mask images with adversarial labels for max_epochs
+    adv_model.train() # might be unnecessary, but just in case
+    print(f"Starting adversarial label training")
+    for epoch in range(max_epochs):
+        adv_label_train_loop = tqdm(zip(mask_tensors_list, adv_labels_list), desc=f'Epoch {epoch+1}/{max_epochs} (Adv. Label Train)')
+        # main adv. label training loop
+        for mask_tensors, adv_labels in adv_label_train_loop:
+            mask_tensors = mask_tensors.cuda()
+            adv_labels = adv_labels.cuda()
+            optimizer_adv.zero_grad()
+            outputs, _ = adv_model(mask_tensors)
+            loss = F.cross_entropy(outputs, adv_labels)
+            loss.backward()
+            optimizer_adv.step()
+            # update progress bar with loss info
+            adv_label_train_loop.set_postfix(loss=f'{loss.item():.4f}')
+    
+        # update scheduler
+        scheduler_adv.step()
+        # save weights for the end of the epoch
+        torch.save({'state_dict': adv_model.state_dict()}, f"{save_path}/mask_model_epoch_{epoch+1}_adv.pt")
 
 def train_twice_natural(config, train_loader, val_loader):
 
