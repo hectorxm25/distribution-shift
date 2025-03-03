@@ -1,0 +1,6 @@
+Mask 1 (large epsilon):
+  Natural confidence (class 2): 0.1168
+  Adversarial confidence (class 6): 0.0984
+  Highest confidence (class 5): 0.1270
+  Label: 2
+  Adversarial label: 6

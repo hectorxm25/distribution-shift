@@ -1,0 +1,6 @@
+Mask 4 (large epsilon):
+  Natural confidence (class 7): 0.0755
+  Adversarial confidence (class 3): 0.1349
+  Highest confidence (class 3): 0.1349
+  Label: 7
+  Adversarial label: 3

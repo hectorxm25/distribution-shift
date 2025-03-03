@@ -1,0 +1,5 @@
+Random superimposed image 2 (small epsilon):
+  Natural confidence (class 5): 0.1568
+  Adversarial confidence (class 3): 0.1307
+  Adversarial label: 3
+  Highest confidence (class 5): 0.1568

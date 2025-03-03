@@ -1,0 +1,6 @@
+Mask 3 (large epsilon):
+  Natural confidence (class 5): 0.1220
+  Adversarial confidence (class 2): 0.1235
+  Highest confidence (class 3): 0.1303
+  Label: 5
+  Adversarial label: 2

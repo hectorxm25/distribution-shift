@@ -1,0 +1,4 @@
+Mask 3 (small epsilon):
+  Natural confidence (class 5): 0.1182
+  Adversarial confidence (class 2): 0.1123
+  Highest confidence (class 3): 0.1328

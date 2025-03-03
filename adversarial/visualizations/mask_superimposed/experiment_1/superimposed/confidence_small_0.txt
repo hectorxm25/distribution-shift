@@ -1,0 +1,4 @@
+Superimposed image 0 (small epsilon):
+  Natural confidence (class 2): 0.1083
+  Adversarial confidence (class 4): 0.1200
+  Highest confidence (class 5): 0.1222

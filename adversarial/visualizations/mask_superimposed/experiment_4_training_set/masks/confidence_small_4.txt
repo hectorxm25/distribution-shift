@@ -1,0 +1,4 @@
+Mask 4 (small epsilon):
+  Natural confidence (class 7): 0.0808
+  Adversarial confidence (class 9): 0.0943
+  Highest confidence (class 2): 0.1235
