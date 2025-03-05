@@ -1,0 +1,6 @@
+Analysis of adv_predicted_label_large_3.pt
+  Total masks analyzed: 5
+  Masks where highest confidence class matches natural class: 0 (0.00%)
+  Masks where highest confidence class matches adversarial class: 2 (40.00%)
+  Masks where highest confidence class matches neither: 3 (60.00%)
+

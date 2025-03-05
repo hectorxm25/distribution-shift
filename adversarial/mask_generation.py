@@ -13,6 +13,7 @@ import matplotlib.pyplot as plt
 from robustness import model_utils, datasets, train, defaults
 from robustness.datasets import CIFAR
 from utils import load_dataset
+import utils
 
 # global configs
 DATASET_PATH = "/home/gridsan/hmartinez/distribution-shift/datasets"

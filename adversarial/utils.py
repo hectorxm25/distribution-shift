@@ -52,6 +52,43 @@ def load_dataset(data_path):
     print("Successfully loaded data loaders")
     return dataset, train_loader, test_loader
 
+def create_random_images(num_images, epsilon=1):
+    """
+    Creates random images following the differential privacy noise injection framework.
+    Returns tensor of shape (num_images, 3, 32, 32). 
+    Taken from https://www.perplexity.ai/search/i-am-a-researcher-in-machine-l-my84HmbhQVmET3VCkjlCWA
+    """
+     # Generate base noise image
+    base_noise = np.random.normal(0, 1, size=(num_images, 3, 32, 32))
+    
+    # Calculate sensitivity (assuming pixel values in [0, 1])
+    sensitivity = 1.0
+    
+    # Calculate noise scale based on epsilon
+    noise_scale = sensitivity / epsilon
+    
+    # Add calibrated noise
+    dp_noise = base_noise + np.random.laplace(0, noise_scale, size=(num_images, 3, 32, 32))
+    
+    # Clip values to [0, 1] range
+    dp_noise = np.clip(dp_noise, 0, 1)
+
+    # Convert to PyTorch tensor
+    dp_noise_tensor = torch.tensor(dp_noise, dtype=torch.float32)
+    
+    return dp_noise_tensor
+
+def load_pt_tensor(path, verbose=False):
+    """
+    loads a tensor from a .pt file.
+    """
+    tensor = torch.load(path)
+    if verbose:
+        print(f"Loaded tensor from {path}")
+        print(f"Tensor shape: {tensor.shape}")
+        print(f"Tensor: {tensor}")
+    return tensor
+
 class ModelWrapper(torch.nn.Module):
     def __init__(self, model):
         super().__init__()
@@ -59,3 +96,7 @@ class ModelWrapper(torch.nn.Module):
     
     def forward(self, x):
         return self.model(x)[0]  # Only return the logits 
+    
+
+if __name__ == "__main__":
+    load_pt_tensor("/home/gridsan/hmartinez/distribution-shift/adversarial/visualizations/mask_superimposed/experiment_5_test_set/superimposed/superimposed_large_4.pt", verbose=True)

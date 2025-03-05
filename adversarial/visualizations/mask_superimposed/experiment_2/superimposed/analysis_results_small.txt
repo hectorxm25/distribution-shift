@@ -1,0 +1,6 @@
+Analysis of confidence_small_2.txt
+  Total masks analyzed: 5
+  Masks where highest confidence class matches natural class: 0 (0.00%)
+  Masks where highest confidence class matches adversarial class: 3 (60.00%)
+  Masks where highest confidence class matches neither: 2 (40.00%)
+
