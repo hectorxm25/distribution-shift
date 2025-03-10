@@ -17,6 +17,15 @@ ATTACK_PARAMS = {
         'random_start': False,  # Changed from 'random_restarts' to 'random_start'
     }
 
+# standard PGD attack
+NORMAL_ATTACK_PARAMS = {
+        'constraint': 'inf',      # Use L2 PGD attack
+        'eps': 0.031,            # small epsilon
+        'step_size': 0.01,      # small step size
+        'iterations': 10,      # standard iterations
+        'random_start': False,  # standard random start
+    }
+
 ADVERSARIAL_TRAINING_PARAMS = {
         'out_dir': OUTPUT_DIR,
         'adv_train': 1,        # Enable adversarial training
@@ -74,6 +83,7 @@ def test_mask_accuracy(model_path, loader, attack_config=ATTACK_PARAMS):
     # print(f"Size of dataset {len(loader) * len(loader[0][0])}")
     return accuracy_natural, accuracy_adversarial
     
+# TODO: create a function that tests accuracy and plots it with 25 different epsilons
 
 def test(model_path, loader):
     # set up dataset again
@@ -578,7 +588,7 @@ if __name__ == "__main__":
     # test mask accuracy
     MODEL_PATH= "/home/gridsan/hmartinez/distribution-shift/models/natural/149_checkpoint.pt"
     _, training_loader, test_loader = load_dataset("/home/gridsan/hmartinez/distribution-shift/datasets")
-    test_mask_accuracy(MODEL_PATH, training_loader)
+    test_mask_accuracy(MODEL_PATH, training_loader, attack_config=NORMAL_ATTACK_PARAMS)
 
     # MODEL_PATH_NATURAL_TRAINING = "/home/gridsan/hmartinez/distribution-shift/models/natural/149_checkpoint.pt"
     # _, training_loader, test_loader = load_dataset("/home/gridsan/hmartinez/distribution-shift/datasets")
