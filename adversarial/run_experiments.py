@@ -576,7 +576,7 @@ def analyze_mask_superimposed_experiment(experiment_folder):
     print("Done analyzing mask superimposed experiment")      
 
 # NOTE: This function will be very similar to `run_mask_visualization_experiment`, but it will not be saving images and will use another way to test accuracy
-def run_mask_superimposed_random_experiment(model_path, save_folder, loader, attack_config=ATTACK_PARAMS, privacy_allocation=0.5, verbose=False):
+def run_mask_superimposed_random_experiment(model_path, save_folder, loader, attack_config=ATTACK_PARAMS, privacy_allocation=0.5, verbose=False, use_gaussian=False, mu=None, sigma=None, save_images=False):
     """
     NOTE: REQUIRES TO BE RUN ON GPU
     Will run the mask superimposed experiment on a random set of images from the test set. It will be done in this exact manner. 
@@ -585,6 +585,9 @@ def run_mask_superimposed_random_experiment(model_path, save_folder, loader, att
     `privacy_allocation` is the privacy allocation to use for the attack (epsilon), the higher the epsilon, the less noise, another tuning parameter
     `save_folder` is the folder to save the results to, in a text file
     `model_path` is the path to the model to use for the attack
+
+    If `use_gaussian` is True, then the mask will be generated using a Gaussian distribution with mean `mu` and standard deviation `sigma`.
+    If `save_images` is True, then some (few) images will be saved to the save_folder to visualize the added gaussian noise (not much else)
 
     Experiment Description: Will do four different tasks.
     a. Create a mask on the entire loader's images, then calculate the accuracy of the model on those masks, both the natural, adversarial, and disgreement accuracy. 
@@ -664,6 +667,15 @@ def run_mask_superimposed_random_experiment(model_path, save_folder, loader, att
         else:
             f.write(f"Used test set for experiment\n")
         f.write(f"==============================================\n\n")
+    
+    if save_images:
+        # save the images to the save_folder
+        os.makedirs(f"{save_folder}/images", exist_ok=True)
+        for i in range(3):
+            # save the original image
+            vutils.save_image(original_images[0][i], f"{save_folder}/images/original_image_{i}.png")
+            vutils.save_image(adv_images[0][i], f"{save_folder}/images/adv_image_{i}.png")
+            vutils.save_image(masks[0][i], f"{save_folder}/images/mask_{i}.png")
 
 
     # now to perform experiment b as per the docstring
@@ -713,6 +725,9 @@ def run_mask_superimposed_random_experiment(model_path, save_folder, loader, att
         random_image.cuda()
         # get the natural, adversarial, and disagreement accuracy
         outputs, _ = model(masks[i] + random_image) # superimpose the mask on the adversarial image, random
+        if save_images and i < 3:
+            # save the random image
+            vutils.save_image(outputs[0], f"{save_folder}/images/random_superimposed_image_{i}.png")
         _, predicted = outputs.max(1)
         correct_adversarial += predicted.eq(adv_predicted_labels[i]).sum().item()
         total += labels[i].size(0)
@@ -745,10 +760,17 @@ def run_mask_superimposed_random_experiment(model_path, save_folder, loader, att
     # iterate through the batches
     for i in range(len(original_images)):
         # create the random image using the differential privacy noise injection framework
-        random_mask = utils.create_random_images(len(original_images[i]), epsilon=privacy_allocation)
+        if use_gaussian:
+            random_mask = utils.create_gaussian_noise(len(original_images[i]), mu, sigma)
+        else:
+            random_mask = utils.create_random_images(len(original_images[i]), epsilon=privacy_allocation)
         random_mask = random_mask.cuda()
         # get the natural, adversarial, and disagreement accuracy
-        outputs, _ = model(original_images[i] + random_mask)
+        outputs, _ = model(torch.clamp(original_images[i] + random_mask, 0, 1))
+        if save_images and i < 3:
+            # save the random mask
+            vutils.save_image(outputs[0], f"{save_folder}/images/random_noise_superimposed_image_{i}.png")
+            vutils.save_image(random_mask[0], f"{save_folder}/images/random_noise_mask_{i}.png")
         _, predicted = outputs.max(1)
         correct_adversarial += predicted.eq(adv_predicted_labels[i]).sum().item()
         total += labels[i].size(0)
@@ -768,19 +790,93 @@ def run_mask_superimposed_random_experiment(model_path, save_folder, loader, att
         f.write(f"Natural accuracy: {accuracy_natural:.2f}%\n")
         f.write(f"Adversarial accuracy: {accuracy_adversarial:.2f}%\n")
         f.write(f"Disagreement percentage: {disagreement_percentage:.2f}%\n")
-        f.write(f"Privacy allocation: {privacy_allocation}\n")
+        if use_gaussian:
+            f.write(f"Gaussian noise used\n")
+            f.write(f"Gaussian noise mean: {mu}\n")
+            f.write(f"Gaussian noise standard deviation: {sigma}\n")
+        else:
+            f.write(f"Privacy allocation: {privacy_allocation}\n")
         f.write(f"==============================================\n\n")
     
     print("Done with all experiments")
     return
 
+def check_adversarial_labels(model_path, save_folder, loader, small_eps_config=NORMAL_ATTACK_PARAMS, large_eps_config=ATTACK_PARAMS, verbose=False):
+    """
+    This function will check the adversarial labels of the same images on two different attack configurations, and save
+    them on a .pt file that saves the tensors for later comparisons. Will do it on `loader` images using
+    `model_path` as the model to use.
+    """ 
+    if verbose:
+        print(f"Checking adversarial labels for model at {model_path}")
+        print(f"Small epsilon config: {small_eps_config}")
+        print(f"Large epsilon config: {large_eps_config}")
+        print(f"Save folder: {save_folder}")
+        print(f"Len of loader: {len(loader)}")
+
+    # load model
+    dataset = CIFAR('/home/gridsan/hmartinez/distribution-shift/datasets')
+    model, _ = model_utils.make_and_restore_model(arch='resnet18', dataset=dataset, resume_path=model_path)
+    model.eval()
+    model.to('cuda')
+
+    # store adv_large and small labels
+    adv_large_labels = []
+    adv_small_labels = []
+    total = 0
+    disagree_count = 0
+    for images, labels in loader:
+        # get the adversarial images
+        images = images.cuda()
+        labels = labels.cuda()
+        _, adv_images = model(images, labels, make_adv=True, **small_eps_config)
+        _, adv_images_large = model(images, labels, make_adv=True, **large_eps_config)
+        
+        # get the adversarial labels
+        adv_output, _ = model(adv_images)
+        adv_predicted_labels = adv_output.argmax(dim=1).cpu()
+        adv_output_large, _ = model(adv_images_large)
+        adv_predicted_labels_large = adv_output_large.argmax(dim=1).cpu()
+
+        adv_large_labels.append(adv_predicted_labels_large)
+        adv_small_labels.append(adv_predicted_labels)
+        
+        # count the number of disagreements
+        disagree_count += abs(labels.size(0) - adv_predicted_labels.eq(adv_predicted_labels_large).sum().item())
+        total += labels.size(0)
     
+    # write the results to the text file
+    with open(f"{save_folder}/results_adversarial_labels.txt", 'w') as f:
+        f.write(f"Model path: {model_path}\n")
+        f.write(f"Small epsilon config: {small_eps_config}\n")
+        f.write(f"Large epsilon config: {large_eps_config}\n")
+        f.write(f"Len of loader: {len(loader)}\n")
+        f.write("============================================= \n\n")
+        f.write(f"Total samples: {total}\n")
+        f.write(f"Disagreement percentage: {100 * disagree_count / total:.2f}%\n")
+    if verbose:
+        print(f"Total samples: {total}")
+        print(f"Disagreement percentage: {100 * disagree_count / total:.2f}%")
+
+    # Convert lists of tensors to single tensors
+    adv_large_labels_tensor = torch.cat(adv_large_labels, dim=0)
+    adv_small_labels_tensor = torch.cat(adv_small_labels, dim=0)
     
+    # Save the tensors to files
+    torch.save(adv_large_labels_tensor, f"{save_folder}/adv_large_labels.pt")
+    torch.save(adv_small_labels_tensor, f"{save_folder}/adv_small_labels.pt")
     
+    if verbose:
+        print(f"Saved adversarial labels to {save_folder}/adv_large_labels.pt and {save_folder}/adv_small_labels.pt")
+        print(f"Large labels tensor shape: {adv_large_labels_tensor.shape}")
+        print(f"Small labels tensor shape: {adv_small_labels_tensor.shape}")
+
+
+    return disagree_count / total
 
 if __name__ == "__main__":
     MODEL_PATH = "/home/gridsan/hmartinez/distribution-shift/models/natural/149_checkpoint.pt"
-    SAVE_PATH = "/home/gridsan/hmartinez/distribution-shift/adversarial/visualizations/mask_superimposed/experiment_12_test_set_smallAttackEpsilon_0.5privacyAllocation"
+    SAVE_PATH = "/home/gridsan/hmartinez/distribution-shift/adversarial/visualizations/mask_superimposed/experiment_18_test_set_largeAttackEpsilon_gaussian_small_noise"
     # EXPERIMENT_FOLDER = "/home/gridsan/hmartinez/distribution-shift/adversarial/visualizations/mask_superimposed/experiment_7_randomNoiseMasks_test_set"
     # # Get the training loader
     _, train_loader, test_loader = train.load_dataset("/home/gridsan/hmartinez/distribution-shift/datasets")
@@ -788,4 +884,5 @@ if __name__ == "__main__":
     # # run_mask_training_experiment(MODEL_PATH, SAVE_PATH)
     # # run_random_noise_mask_confidence_experiment(MODEL_PATH)
     # analyze_mask_superimposed_experiment(EXPERIMENT_FOLDER)
-    run_mask_superimposed_random_experiment(MODEL_PATH, SAVE_PATH, test_loader, attack_config=NORMAL_ATTACK_PARAMS, privacy_allocation=0.5, verbose=True)
+    run_mask_superimposed_random_experiment(MODEL_PATH, SAVE_PATH, test_loader, attack_config=ATTACK_PARAMS, privacy_allocation=10, verbose=True, use_gaussian=True, mu=0, sigma=0.1)
+    # check_adversarial_labels(MODEL_PATH, SAVE_PATH, test_loader, small_eps_config=NORMAL_ATTACK_PARAMS, large_eps_config=ATTACK_PARAMS, verbose=True)

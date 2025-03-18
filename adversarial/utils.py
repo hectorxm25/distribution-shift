@@ -78,6 +78,14 @@ def create_random_images(num_images, epsilon=1):
     
     return dp_noise_tensor
 
+def create_gaussian_noise(num_images, mu, sigma):
+    """
+    Creates gaussian noise.
+    Returns tensor of shape (num_images, 3, 32, 32). 
+    """
+    base_noise = np.random.normal(mu, sigma, size=(num_images, 3, 32, 32))
+    return torch.tensor(base_noise, dtype=torch.float32)
+
 def load_pt_tensor(path, verbose=False):
     """
     loads a tensor from a .pt file.
