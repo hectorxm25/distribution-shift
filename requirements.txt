@@ -1,3 +1,7 @@
 numpy
 robustness
 torch
+nnsight
+captum
+torchvision
+protobuf==3.20.0

@@ -6,8 +6,12 @@ import cox
 from tqdm import tqdm
 import random
 import numpy as np
-from TRADES.trades import trades_loss
 import argparse
+
+import os
+import sys
+sys.path.append(os.path.abspath(os.path.dirname(__file__)))
+from TRADES.trades import trades_loss
 import mask_generation as mask_gen
 
 def create_and_save_dataset(data_path):
@@ -44,7 +48,7 @@ def load_dataset(data_path):
     Loads previously saved dataset in a way compatible with robustness library
     """
     # Load the saved dataset and reproducibility info
-    checkpoint = torch.load(f"{data_path}/dataset.pt")
+    checkpoint = torch.load(f"{data_path}/dataset.pt", weights_only=False)
     dataset = checkpoint['dataset']
     
     # Restore all random seeds (just in case)
@@ -59,7 +63,7 @@ def load_dataset(data_path):
     print("Successfully loaded data loaders")
     return dataset, train_loader, test_loader
 
-def train_with_masks(config, model_path, mask_tensors_list, labels_list, adv_labels_list, save_path, max_epochs=2):
+def train_with_masks(config, model_path, mask_tensors_list, labels_list, adv_labels_list, save_path, max_epochs=2, datapath='datasets'):
     """
     Trains a model with masks and saves the weights every epoch (default 2)
     Uses the same training config as the natural training
@@ -80,7 +84,7 @@ def train_with_masks(config, model_path, mask_tensors_list, labels_list, adv_lab
     print(f"We have {len(mask_tensors_list)} batches")
     print(f"Our config is {config}")
     # set up model
-    dataset = CIFAR('/home/gridsan/hmartinez/distribution-shift/datasets')
+    dataset = CIFAR(datapath)
     model, _ = model_utils.make_and_restore_model(arch='resnet18', dataset=dataset, resume_path=model_path)
     model.cuda()
     # set up optimizer
@@ -163,10 +167,10 @@ def train_twice_natural(config, train_loader, val_loader):
     model = train.train_model(train_args, model, (train_loader, val_loader))
     return model
 
-def train_no_adversarial(config, train_loader, val_loader):
+def train_no_adversarial(config, train_loader, val_loader, datapath):
     # reference local dataset
     # NOTE: if doing there is no `datasets/cifar-10-python.tar.gz` file, then make sure to run this on a node with download network access
-    dataset = CIFAR('/home/gridsan/hmartinez/distribution-shift/datasets') # change this as you like
+    dataset = CIFAR(datapath) # change this as you like
     print("successfully pulled dataset")
 
     # create the model
@@ -504,7 +508,7 @@ if __name__ == "__main__":
     parser.add_argument('--beta', type=float, default=1.0,
                     help='Beta value for TRADES')
     parser.add_argument('--attack_type', type=str, default='pgd',
-                    choices=['pgd', 'trades', 'TRADES'], help='Attack type')
+                    choices=['pgd', 'trades', 'TRADES', 'none'], help='Attack type')
 
     args = parser.parse_args()
 
@@ -566,17 +570,24 @@ if __name__ == "__main__":
             **NON_ATTACK_PARAMS        # Add (NON)-attack parameters
         } 
     
+    DATA_PATH = 'datasets'
     # End of globals  
     # ----------------------------------------------------------------
 
+    torch.serialization.add_safe_globals([CIFAR]) # small change to handle version issue
+
     print(f"Loading dataset")
-    DATA_PATH = '/home/gridsan/hmartinez/distribution-shift/datasets'
     # load the dataset loaders
+    if not os.path.exists(f"{DATA_PATH}/dataset.pt"):
+        print(f"Dataset not found, creating and saving dataset to {DATA_PATH}/dataset.pt")
+        dataset = create_and_save_dataset(DATA_PATH)
     dataset, train_loader, test_loader = load_dataset(DATA_PATH)
     print(f"successfully loaded dataset, starting to train adversarial model: Norm: {args.constraint} Eps: {args.eps}")
     # train the adversarial model
     if args.attack_type == 'pgd':
-        model = train_adversarial(ADVERSARIAL_TRAINING_PARAMS, train_loader, test_loader)
+        model = train_adversarial(ADVERSARIAL_TRAINING_PARAMS, train_loader, test_loader, DATA_PATH)
+    elif args.attack_type == 'none':
+        model = train_no_adversarial(NO_ADVERSARIAL_TRAINING_PARAMS, train_loader, test_loader, DATA_PATH)
     elif args.attack_type == 'trades' or args.attack_type == 'TRADES':
         model = train_trades(ADVERSARIAL_TRAINING_PARAMS, train_loader, test_loader, OUTPUT_DIR)
     print(f"successfully trained adversarial model: Norm: {args.constraint} Eps: {args.eps}")
