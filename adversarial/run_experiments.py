@@ -874,9 +874,74 @@ def check_adversarial_labels(model_path, save_folder, loader, small_eps_config=N
 
     return disagree_count / total
 
+def visualize_masks_and_natural_images(model_path, save_folder, loader, N=3, low_epsilon_config=NORMAL_ATTACK_PARAMS, high_epsilon_config=ATTACK_PARAMS):
+    """
+    This function will visualize the masks and natural images of the first N images in the loader.
+    And save them to the save_folder. Will save low and high epsilon masks, natural images, and their superimposed versions.
+    N must be less than 128 (batch size)
+    """
+    # load model
+    dataset = CIFAR('/home/gridsan/hmartinez/distribution-shift/datasets')
+    model, _ = model_utils.make_and_restore_model(arch='resnet18', dataset=dataset, resume_path=model_path)
+    model.eval()
+    model.to('cuda')
+
+    for images, labels in loader:
+        # get the adversarial images
+        images = images.cuda()
+        labels = labels.cuda()
+        _, adv_images = model(images, labels, make_adv=True, **low_epsilon_config)
+        _, adv_images_large = model(images, labels, make_adv=True, **high_epsilon_config)
+        break # only do the first batch
+
+    images = images[:N]
+    adv_images = adv_images[:N]
+    adv_images_large = adv_images_large[:N]
+    labels = labels[:N]
+
+    # calculate the masks
+    masks_large = adv_images_large - images
+    masks_small = adv_images - images
+
+    # get the labels for all the images and masks
+    adv_output, _ = model(adv_images)
+    adv_predicted_labels = adv_output.argmax(dim=1).cpu()
+    adv_output_large, _ = model(adv_images_large)
+    adv_predicted_labels_large = adv_output_large.argmax(dim=1).cpu()
+    mask_output, _ = model(masks_small)
+    mask_predicted_labels = mask_output.argmax(dim=1).cpu()
+    mask_output_large, _ = model(masks_large)
+    mask_predicted_labels_large = mask_output_large.argmax(dim=1).cpu()
+
+    labels = labels.cpu()
+
+    # save the images
+    os.makedirs(save_folder, exist_ok=True)
+    for i in range(N):
+        # save the natural image
+        vutils.save_image(images[i], f"{save_folder}/natural_image_{i}.png")
+        vutils.save_image(adv_images[i], f"{save_folder}/adv_image_small_epsilon_{i}.png")
+        vutils.save_image(adv_images_large[i], f"{save_folder}/adv_image_large_epsilon_{i}.png")
+        vutils.save_image(masks_small[i], f"{save_folder}/mask_small_epsilon_{i}.png")
+        vutils.save_image(masks_large[i], f"{save_folder}/mask_large_epsilon_{i}.png")
+    
+    # save the labels to a text file
+    with open(f"{save_folder}/labels.txt", 'w') as f:
+        f.write(f"Model path: {model_path}\n")
+        f.write(f"Low epsilon config: {low_epsilon_config}\n")
+        f.write(f"High epsilon config: {high_epsilon_config}\n")
+        f.write(f"Natural labels: {labels}\n")
+        f.write(f"Adversarial labels (small epsilon): {adv_predicted_labels}\n")
+        f.write(f"Adversarial labels (large epsilon): {adv_predicted_labels_large}\n")
+        f.write(f"Mask labels (small epsilon): {mask_predicted_labels}\n")
+        f.write(f"Mask labels (large epsilon): {mask_predicted_labels_large}\n")
+    
+    print(f"Saved images to {save_folder}")
+    return
+
 if __name__ == "__main__":
     MODEL_PATH = "/home/gridsan/hmartinez/distribution-shift/models/natural/149_checkpoint.pt"
-    SAVE_PATH = "/home/gridsan/hmartinez/distribution-shift/adversarial/visualizations/mask_superimposed/experiment_18_test_set_largeAttackEpsilon_gaussian_small_noise"
+    SAVE_PATH = "/home/gridsan/hmartinez/distribution-shift/adversarial/visualizations/image_visualizations"
     # EXPERIMENT_FOLDER = "/home/gridsan/hmartinez/distribution-shift/adversarial/visualizations/mask_superimposed/experiment_7_randomNoiseMasks_test_set"
     # # Get the training loader
     _, train_loader, test_loader = train.load_dataset("/home/gridsan/hmartinez/distribution-shift/datasets")
@@ -884,5 +949,6 @@ if __name__ == "__main__":
     # # run_mask_training_experiment(MODEL_PATH, SAVE_PATH)
     # # run_random_noise_mask_confidence_experiment(MODEL_PATH)
     # analyze_mask_superimposed_experiment(EXPERIMENT_FOLDER)
-    run_mask_superimposed_random_experiment(MODEL_PATH, SAVE_PATH, test_loader, attack_config=ATTACK_PARAMS, privacy_allocation=10, verbose=True, use_gaussian=True, mu=0, sigma=0.1)
+    # run_mask_superimposed_random_experiment(MODEL_PATH, SAVE_PATH, test_loader, attack_config=ATTACK_PARAMS, privacy_allocation=10, verbose=True, use_gaussian=True, mu=0, sigma=0.1)
     # check_adversarial_labels(MODEL_PATH, SAVE_PATH, test_loader, small_eps_config=NORMAL_ATTACK_PARAMS, large_eps_config=ATTACK_PARAMS, verbose=True)
+    visualize_masks_and_natural_images(MODEL_PATH, SAVE_PATH, test_loader, N=10, low_epsilon_config=NORMAL_ATTACK_PARAMS, high_epsilon_config=ATTACK_PARAMS)
