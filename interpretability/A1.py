@@ -29,7 +29,7 @@ SMALL_EPS_ATTACK_PARAMS = {
 
 DEFAULT_CONFIG = {
     "lr": 0.001,
-    "epochs": 5,
+    "epochs": 3,
     "batch_size": 128,
 }
 
@@ -200,11 +200,9 @@ def get_intermediate_layer_representations(model_path, loader, save_path, num_ba
             representations[layer]["low_eps_images"].append(small_eps_save_proxy[layer].value.detach().cpu())
             representations[layer]["high_eps_images"].append(large_eps_save_proxy[layer].value.detach().cpu())
 
-        # if verbose:
-        #     print(f"Representations: {representations}")
+       
 
     if verbose:
-        # print(f"After All Loops, Representations: {representations}")
         print(f"After All Loops, Representations shape layer1 natural_images: {representations['model.layer1']['natural_images'][0].shape}")
         print(f"After All Loops, Representations shape layer1 low_eps_images: {representations['model.layer1']['low_eps_images'][0].shape}")
         print(f"After All Loops, Representations shape layer1 high_eps_images: {representations['model.layer1']['high_eps_images'][0].shape}")
@@ -226,7 +224,6 @@ def create_labels_for_representations(list_of_factuals, list_of_counterfactuals,
 
     NOTE: Assumes a 128 batch size.
     """
-    # raise NotImplementedError("Needs to be fixed and have shapes work out properly")
     torch.manual_seed(42)
 
     # create labels and fix data size
@@ -267,20 +264,24 @@ def get_representation(path_to_representations, layer_name, rep_type, verbose=Fa
         print(f"Warning: No representations found for layer '{layer_name}', type '{rep_type}'. Returning empty tensor.")
         return torch.empty((0, 0))
 
-    # Concatenate all batches
-    all_reps_raw = torch.cat(list_of_batches, dim=0)
+    # just returns the list of all batches, not flattened or concatenated, since dataloader will do that
+    return list_of_batches
 
-    # Flatten the representations
-    all_reps_flattened = torch.flatten(all_reps_raw, start_dim=1)
+    # NOTE: Potential bug here, going to change and see if results are different
+    # # Concatenate all batches
+    # all_reps_raw = torch.cat(list_of_batches, dim=0)
 
-    if verbose:
-        print(f"Retrieving representations for layer: {layer_name}, type: {rep_type}")
-        print(f"  Shape of a single batch: {list_of_batches[0].shape}")
-        print(f"  Number of batches: {len(list_of_batches)}")
-        print(f"  Shape after concatenating batches (raw): {all_reps_raw.shape}")
-        print(f"  Shape after flattening (returned): {all_reps_flattened.shape}")
+    # # Flatten the representations
+    # all_reps_flattened = torch.flatten(all_reps_raw, start_dim=1)
 
-    return all_reps_flattened
+    # if verbose:
+    #     print(f"Retrieving representations for layer: {layer_name}, type: {rep_type}")
+    #     print(f"  Shape of a single batch: {list_of_batches[0].shape}")
+    #     print(f"  Number of batches: {len(list_of_batches)}")
+    #     print(f"  Shape after concatenating batches (raw): {all_reps_raw.shape}")
+    #     print(f"  Shape after flattening (returned): {all_reps_flattened.shape}")
+
+    # return all_reps_flattened
 
 class ProbingModel(nn.Module):
     """
@@ -298,7 +299,17 @@ def train_probing_model(dataloader, save_path, config=DEFAULT_CONFIG, verbose=Fa
     """
     Trains a probing model on the given dataloader.
     """
-    model = ProbingModel(num_features=dataloader.dataset[0][0].shape[0]) # should be 64*32*32 = 65536
+    # --- FIX 1: Calculate correct flattened feature size ---
+    sample_data = dataloader.dataset[0][0] # Get one sample tensor
+    # Calculate flattened size (e.g., 64*32*32 = 65536)
+    # Handle potential scalar features (e.g., from model.linear output if you probe that later)
+    num_features = sample_data.numel() # .numel() calculates the total number of elements
+    if verbose:
+        print(f"  Initializing ProbingModel with num_features: {num_features}") # Should print 65536 for layer 1
+    # ---------------------------------------------------------
+
+    # Initialize model with the *correct* number of features
+    model = ProbingModel(num_features=num_features)
     optimizer = torch.optim.Adam(model.parameters(), lr=config["lr"])
     criterion = nn.CrossEntropyLoss()
 
@@ -309,8 +320,17 @@ def train_probing_model(dataloader, save_path, config=DEFAULT_CONFIG, verbose=Fa
     for epoch in range(config["epochs"]):
         for batch_idx, (data, target) in enumerate(dataloader):
             data, target = data.to(device), target.to(device)
+
+            # --- FIX 2: Flatten the batch before model ---
+            # Reshape data from [BatchSize, C, H, W] to [BatchSize, Features]
+            original_shape = data.shape
+            data = data.view(data.size(0), -1) # Flattens dimensions after the first (batch)
+            if verbose and batch_idx == 0 and epoch == 0: # Print shape info once
+                 print(f"  Flattened data shape from {original_shape} to {data.shape}") # Should be [e.g. 128, 65536] for layer 1
+            # ----------------------------------------------
+
             optimizer.zero_grad()
-            output = model(data)
+            output = model(data) # Now the input shape is correct for the linear layer
             loss = criterion(output, target)
             loss.backward()
             optimizer.step()
@@ -331,14 +351,14 @@ def train_all_probes(representations_path, save_folder, config=DEFAULT_CONFIG, v
     for layer in LAYERS_TO_INVESTIGATE:
         if verbose:
             print(f"Training probing model for layer: {layer}")
-        # now iterate over all three combinations of representations
+        # now iterate over all three combinations of representations, note that now these are lists of batches, not tensors that have been flattened
         natural_rep = get_representation(representations_path, layer, "natural_images", verbose)
         low_eps_rep = get_representation(representations_path, layer, "low_eps_images", verbose)
         high_eps_rep = get_representation(representations_path, layer, "high_eps_images", verbose)
         # create dataloader
-        natural_high_eps_loader = create_labels_for_representations([natural_rep], [high_eps_rep], shuffle=True, verbose=verbose)
-        low_high_eps_loader = create_labels_for_representations([low_eps_rep], [high_eps_rep], shuffle=True, verbose=verbose)
-        natural_low_eps_loader = create_labels_for_representations([natural_rep], [low_eps_rep], shuffle=True, verbose=verbose)
+        natural_high_eps_loader = create_labels_for_representations(natural_rep, high_eps_rep, shuffle=True, verbose=verbose)
+        low_high_eps_loader = create_labels_for_representations(low_eps_rep, high_eps_rep, shuffle=True, verbose=verbose)
+        natural_low_eps_loader = create_labels_for_representations(natural_rep, low_eps_rep, shuffle=True, verbose=verbose)
 
         # --- Perform 80/20 Train/Test Split on the Datasets --- 
         def split_dataloader(loader):
@@ -398,8 +418,10 @@ def test_probing_model(dataloader, model_path, verbose=False):
 
     # Determine input features from the dataset
     try:
-        print(f"dataloader.dataset[0][0].shape: {dataloader.dataset[0][0].shape}")
-        num_features = dataloader.dataset[0][0].shape[0] # Assuming the dataset is not empty
+        sample_data = dataloader.dataset[0][0] # Get one sample tensor
+        # Calculate flattened size (e.g., 64*32*32 = 65536)
+        # Handle potential scalar features (e.g., from model.linear output if you probe that later)
+        num_features = sample_data.numel() # .numel() calculates the total number of elements
     except IndexError:
         print(f"Error: DataLoader's dataset seems empty for {model_path}. Cannot determine features.")
         return 0.0
@@ -426,17 +448,21 @@ def test_probing_model(dataloader, model_path, verbose=False):
         total_loss = 0.0
         for data, target in dataloader:
             data, target = data.to(device), target.to(device)
+
+            # --- FIX 2: Flatten the batch before model ---
+            # Reshape data from [BatchSize, C, H, W] to [BatchSize, Features]
+            original_shape = data.shape
+            data = data.view(data.size(0), -1) # Flattens dimensions after the first (batch)
+            # ----------------------------------------------
+
             outputs = model(data)
-            print(f"outputs shape: {outputs.shape}")
             _, predicted = torch.max(outputs.data, 1)
-            print(f"predicted shape: {predicted.shape}")
             total += target.size(0)
             correct += (predicted == target).sum().item()
             
             # Calculate and accumulate loss
             loss = loss_fn(outputs, target)
             print(f"Loss: {loss.item()}")
-            print(f"loss shape is {loss.shape}")
             total_loss += loss.item() * target.size(0)
     accuracy = 100 * correct / total if total > 0 else 0
 
@@ -445,6 +471,7 @@ def test_probing_model(dataloader, model_path, verbose=False):
         print(f"Total loss: {total_loss}")
     return accuracy, total_loss
 
+# TODO: Finish this for a complete test of all probes
 def test_all_probes(save_folder, loaders_path, classifiers_path, verbose=False):
     """
     Tests all probes on the test loaders and train loaders.
@@ -472,11 +499,17 @@ def test_all_probes(save_folder, loaders_path, classifiers_path, verbose=False):
 
 
 if __name__ == "__main__":
-    # MODEL_PATH = "/home/gridsan/hmartinez/distribution-shift/models/natural/149_checkpoint.pt"
+    MODEL_PATH = "/home/gridsan/hmartinez/distribution-shift/models/natural/149_checkpoint.pt"
+
+    # test some stuff with our representation space/shape
+    # representations = torch.load("/home/gridsan/hmartinez/distribution-shift/interpretability/representations.pt")
+    # print(f"Representations['model.layer1']['natural_images'] type: {type(representations['model.layer1']['natural_images'])}")
+    # print(f"Representations['model.layer1']['natural_images'][0].shape: {representations['model.layer1']['natural_images'][0].shape}")
+    # print(f"Representations['model.layer1']['natural_images] length: {len(representations['model.layer1']['natural_images'])}")
     # _, train_loader, _ = load_dataset(data_path="/home/gridsan/hmartinez/distribution-shift/datasets")
     # # image_batch = next(iter(train_loader))[0]
     # # connect_layer_to_output(MODEL_PATH, "layer1", image_batch, verbose=True)
-    # representations = get_intermediate_layer_representations(MODEL_PATH, train_loader, save_path="/home/gridsan/hmartinez/distribution-shift/interpretability/representations.pt", num_batches=10, verbose=False)
+    # representations = get_intermediate_layer_representations(MODEL_PATH, train_loader, save_path="/home/gridsan/hmartinez/distribution-shift/interpretability/representations50_batches.pt", num_batches=50, verbose=True)
     # # print(f"After Main, representations: {representations}")
 
     # natural_layer1 = get_representation(path_to_representations="/home/gridsan/hmartinez/distribution-shift/interpretability/representations.pt", layer_name="model.layer1", rep_type="natural_images", verbose=True)
@@ -485,10 +518,10 @@ if __name__ == "__main__":
     # dataloader = create_labels_for_representations([natural_layer1], [high_eps_layer1], shuffle=True, verbose=True)
     
     # test_all_probes(save_folder="/home/gridsan/hmartinez/distribution-shift/interpretability/probes/test_results", verbose=True)
-    # train_all_probes(representations_path="/home/gridsan/hmartinez/distribution-shift/interpretability/representations.pt", save_folder="/home/gridsan/hmartinez/distribution-shift/interpretability/probes_all_classes", config=DEFAULT_CONFIG, verbose=True)
+    train_all_probes(representations_path="/home/gridsan/hmartinez/distribution-shift/interpretability/representations50_batches.pt", save_folder="/home/gridsan/hmartinez/distribution-shift/interpretability/probes_all_classes_50_batches", config=DEFAULT_CONFIG, verbose=False)
 
-    print("Testing singular probe")
-    test_probing_model(dataloader=torch.load("/home/gridsan/hmartinez/distribution-shift/interpretability/probes_all_classes/loaders/test/model.layer1_low_high_eps_test_loader.pt"), model_path="/home/gridsan/hmartinez/distribution-shift/interpretability/probes_all_classes/model.layer1_low_high_eps.pt", verbose=True)
+    # print("Testing singular probe")
+    # test_probing_model(dataloader=torch.load("/home/gridsan/hmartinez/distribution-shift/interpretability/probes_all_classes/loaders/test/model.linear_natural_low_eps_test_loader.pt"), model_path="/home/gridsan/hmartinez/distribution-shift/interpretability/probes_all_classes/model.linear_natural_low_eps.pt", verbose=True)
 
     # debugging_loader = torch.load("/home/gridsan/hmartinez/distribution-shift/interpretability/probes_all_classes/loaders/test/model.layer1_low_high_eps_test_loader.pt")
     # print(f"Debugging loader: {debugging_loader}")

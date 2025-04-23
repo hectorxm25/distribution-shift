@@ -13,4 +13,5 @@ source activate distrib-shift
 
 # Run the script
 echo "Creating intermediate layer representations for 10 batches, saving to /home/gridsan/hmartinez/distribution-shift/interpretability/representations.pt"
+echo "Using the train loader, first 10 batches"
 python /home/gridsan/hmartinez/distribution-shift/interpretability/A1.py
