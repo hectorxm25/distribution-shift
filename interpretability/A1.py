@@ -245,7 +245,71 @@ def create_labels_for_representations(list_of_factuals, list_of_counterfactuals,
     dataset = TensorDataset(all_data, all_labels)
     dataloader = DataLoader(dataset, batch_size=128, shuffle=shuffle)
 
+    for batch_idx, (data, target) in enumerate(dataloader):
+        print(f"Batch {batch_idx} shape: {data.shape}")
+        print(f"Batch {batch_idx} labels shape: {target.shape}")
+        print(f"Batch {batch_idx} labels: {target}")
+        break
+
     return dataloader
+
+def sanity_check(dataloader, shuffle=False, verbose=False):
+    """
+    Creates two sanity-check dataloaders from an input dataloader:
+    1. Flipped Labels: Same data, but labels are flipped (0->1, 1->0).
+    2. Random Labels: Same data, but labels are randomly assigned (0 or 1).
+
+    Args:
+        dataloader (DataLoader): The input data loader (expects data, label pairs).
+        shuffle (bool): Whether to shuffle the new dataloaders.
+        verbose (bool): If True, print shapes and info.
+
+    Returns:
+        tuple(DataLoader, DataLoader): A tuple containing the flipped_labels_loader
+                                       and the random_labels_loader.
+    """
+    torch.manual_seed(42) # for reproducible random labels
+
+    all_data = []
+    original_labels = []
+
+    # Extract all data and labels from the input dataloader
+    for data, labels in dataloader:
+        all_data.append(data)
+        original_labels.append(labels)
+
+    # Concatenate batches
+    all_data_tensor = torch.cat(all_data, dim=0)
+    original_labels_tensor = torch.cat(original_labels, dim=0)
+
+    if verbose:
+        print(f"[Sanity Check] Input data shape: {all_data_tensor.shape}")
+        print(f"[Sanity Check] Input labels shape: {original_labels_tensor.shape}")
+        print(f"[Sanity Check] Original first 10 labels: {original_labels_tensor[:10]}")
+
+    # 1. Create flipped labels
+    # Assuming binary classification with labels 0 and 1
+    flipped_labels_tensor = 1 - original_labels_tensor
+    if verbose:
+        print(f"[Sanity Check] Flipped first 10 labels: {flipped_labels_tensor[:10]}")
+
+    # 2. Create random labels
+    random_labels_tensor = torch.randint(0, 2, size=original_labels_tensor.shape, dtype=torch.long)
+    if verbose:
+        print(f"[Sanity Check] Random first 10 labels: {random_labels_tensor[:10]}")
+
+
+    # Get batch size from original loader or use a default
+    batch_size = dataloader.batch_size if hasattr(dataloader, 'batch_size') and dataloader.batch_size else 128
+
+    # Create new datasets and dataloaders
+    flipped_dataset = TensorDataset(all_data_tensor, flipped_labels_tensor)
+    random_dataset = TensorDataset(all_data_tensor, random_labels_tensor)
+
+    flipped_loader = DataLoader(flipped_dataset, batch_size=batch_size, shuffle=shuffle)
+    random_loader = DataLoader(random_dataset, batch_size=batch_size, shuffle=shuffle)
+
+    return flipped_loader, random_loader
 
 def get_representation(path_to_representations, layer_name, rep_type, verbose=False):
     """
@@ -515,10 +579,10 @@ if __name__ == "__main__":
     # natural_layer1 = get_representation(path_to_representations="/home/gridsan/hmartinez/distribution-shift/interpretability/representations.pt", layer_name="model.layer1", rep_type="natural_images", verbose=True)
     # high_eps_layer1 = get_representation(path_to_representations="/home/gridsan/hmartinez/distribution-shift/interpretability/representations.pt", layer_name="model.layer1", rep_type="high_eps_images", verbose=True)
     # # create dataloader
-    # dataloader = create_labels_for_representations([natural_layer1], [high_eps_layer1], shuffle=True, verbose=True)
+    # dataloader = create_labels_for_representations(natural_layer1, high_eps_layer1, shuffle=True, verbose=True)
     
     # test_all_probes(save_folder="/home/gridsan/hmartinez/distribution-shift/interpretability/probes/test_results", verbose=True)
-    train_all_probes(representations_path="/home/gridsan/hmartinez/distribution-shift/interpretability/representations50_batches.pt", save_folder="/home/gridsan/hmartinez/distribution-shift/interpretability/probes_all_classes_50_batches", config=DEFAULT_CONFIG, verbose=False)
+    # train_all_probes(representations_path="/home/gridsan/hmartinez/distribution-shift/interpretability/representations50_batches.pt", save_folder="/home/gridsan/hmartinez/distribution-shift/interpretability/probes_all_classes_50_batches", config=DEFAULT_CONFIG, verbose=False)
 
     # print("Testing singular probe")
     # test_probing_model(dataloader=torch.load("/home/gridsan/hmartinez/distribution-shift/interpretability/probes_all_classes/loaders/test/model.linear_natural_low_eps_test_loader.pt"), model_path="/home/gridsan/hmartinez/distribution-shift/interpretability/probes_all_classes/model.linear_natural_low_eps.pt", verbose=True)
@@ -527,9 +591,22 @@ if __name__ == "__main__":
     # print(f"Debugging loader: {debugging_loader}")
     # print(f"len of debugging loader: {len(debugging_loader)}")
 
-    # for data, target in debugging_loader:
-    #     print(f"Data shape: {data.shape}")
-    #     print(f" data[0]: {data[0]}")
-    #     print(f"data[0] shape: {data[0].shape}")
-    #     print(f"Target shape: {target.shape}")
-    #     break
+    # sanity check for all layers and configurations
+    for layer in LAYERS_TO_INVESTIGATE:
+        for config in ["natural_high_eps", "low_high_eps", "natural_low_eps"]:
+            # Load the test loader
+            loader_path = f"/home/gridsan/hmartinez/distribution-shift/interpretability/probes_all_classes/loaders/test/{layer}_{config}_test_loader.pt"
+            model_path = f"/home/gridsan/hmartinez/distribution-shift/interpretability/probes_all_classes/{layer}_{config}.pt"
+            
+            test_loader = torch.load(loader_path)
+            
+            # Create sanity check loaders with flipped and random labels
+            flipped_labels_loader, random_labels_loader = sanity_check(test_loader, shuffle=False, verbose=True)
+            
+            # Test the model with flipped labels
+            print(f"Testing All Wrong {layer} {config}")
+            test_probing_model(dataloader=flipped_labels_loader, model_path=model_path, verbose=True)
+            
+            # Test the model with random labels
+            print(f"Testing All Random {layer} {config}")
+            test_probing_model(dataloader=random_labels_loader, model_path=model_path, verbose=True)
