@@ -6,6 +6,7 @@ import nnsight
 from nnsight import NNsight
 import numpy as np
 import os
+import matplotlib.pyplot as plt
 from collections import defaultdict 
 import itertools 
 from torch.utils.data import TensorDataset, DataLoader
@@ -359,9 +360,20 @@ class ProbingModel(nn.Module):
     def forward(self, x):
         return self.fc(x)
 
-def train_probing_model(dataloader, save_path, config=DEFAULT_CONFIG, verbose=False):
+def train_probing_model(dataloader, test_loader, save_path, config=DEFAULT_CONFIG, verbose=False):
     """
-    Trains a probing model on the given dataloader.
+    Trains a probing model on the given dataloader, evaluates on test_loader,
+    and returns training and validation loss histories.
+
+    Args:
+        dataloader (DataLoader): Training data loader.
+        test_loader (DataLoader): Validation (test) data loader.
+        save_path (str): Path to save the trained model state_dict.
+        config (dict): Training configuration (lr, epochs, batch_size).
+        verbose (bool): If True, print training progress.
+
+    Returns:
+        tuple(list, list): train_loss_history, val_loss_history (epoch-wise average losses).
     """
     # --- FIX 1: Calculate correct flattened feature size ---
     sample_data = dataloader.dataset[0][0] # Get one sample tensor
@@ -379,35 +391,93 @@ def train_probing_model(dataloader, save_path, config=DEFAULT_CONFIG, verbose=Fa
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.to(device)
-    model.train()
+
+    train_loss_history = []
+    val_loss_history = []
 
     for epoch in range(config["epochs"]):
+        model.train() # Set model to training mode
+        running_train_loss = 0.0
+        num_train_batches = 0
         for batch_idx, (data, target) in enumerate(dataloader):
             data, target = data.to(device), target.to(device)
 
-            # --- FIX 2: Flatten the batch before model ---
-            # Reshape data from [BatchSize, C, H, W] to [BatchSize, Features]
+            # Flatten the batch before model
             original_shape = data.shape
-            data = data.view(data.size(0), -1) # Flattens dimensions after the first (batch)
-            if verbose and batch_idx == 0 and epoch == 0: # Print shape info once
-                 print(f"  Flattened data shape from {original_shape} to {data.shape}") # Should be [e.g. 128, 65536] for layer 1
-            # ----------------------------------------------
+            try:
+                data = data.view(data.size(0), -1) # Flattens dimensions after the first (batch)
+            except RuntimeError as e:
+                 print(f"Error reshaping data in train_probing_model (batch {batch_idx}). Original shape: {original_shape}. Error: {e}")
+                 if data.numel() == 0:
+                     continue
+                 else:
+                     raise e
+            # if verbose and batch_idx == 0 and epoch == 0: # Print shape info once per training run
+            #      print(f"  Flattened data shape from {original_shape} to {data.shape}")
 
             optimizer.zero_grad()
-            output = model(data) # Now the input shape is correct for the linear layer
+            output = model(data)
             loss = criterion(output, target)
             loss.backward()
             optimizer.step()
 
-            if verbose:
-                print(f"Epoch {epoch}, Batch {batch_idx}, Loss: {loss.item()}")
+            running_train_loss += loss.item()
+            num_train_batches += 1
+
+            # Optional: Print batch loss if very verbose needed
+            # if verbose:
+            #     print(f"Epoch {epoch}, Batch {batch_idx}, Batch Loss: {loss.item():.4f}")
+
+        # Calculate average training loss for the epoch
+        avg_epoch_train_loss = running_train_loss / num_train_batches if num_train_batches > 0 else 0.0
+        train_loss_history.append(avg_epoch_train_loss)
+
+        # Evaluate on validation set at the end of the epoch
+        avg_epoch_val_loss, val_accuracy = evaluate_probe(model, test_loader, criterion, device, verbose=False) # Use the helper
+        val_loss_history.append(avg_epoch_val_loss)
+
+        if verbose:
+            print(f"Epoch {epoch}: Avg Train Loss: {avg_epoch_train_loss:.4f}, Avg Val Loss: {avg_epoch_val_loss:.4f}, Val Accuracy: {val_accuracy:.2f}%")
 
     # save the model
-    torch.save(model.state_dict(), save_path)
+    try:
+        torch.save(model.state_dict(), save_path)
+        if verbose:
+            print(f"Saved trained model to {save_path}")
+    except Exception as e:
+        print(f"Error saving model to {save_path}: {e}")
 
-def train_all_probes(representations_path, save_folder, config=DEFAULT_CONFIG, verbose=False):
+    return train_loss_history, val_loss_history
+
+def plot_losses(train_losses, val_losses, save_path):
+    """
+    Plots training and validation losses on the same graph and saves it.
+
+    Args:
+        train_losses (list): List of average training losses per epoch.
+        val_losses (list): List of average validation losses per epoch.
+        save_path (str): Path to save the plot image.
+    """
+    epochs = range(1, len(train_losses) + 1)
+    plt.figure() # Create a new figure
+    plt.plot(epochs, train_losses, label='Training Loss')
+    plt.plot(epochs, val_losses, label='Validation Loss')
+    plt.title(f'Training and Validation Loss - {os.path.basename(save_path).replace("_losses.png", "")}')
+    plt.xlabel('Epoch')
+    plt.ylabel('Average Loss')
+    plt.legend()
+    plt.grid(True)
+    try:
+        plt.savefig(save_path)
+        print(f"Saved loss plot to {save_path}")
+    except Exception as e:
+        print(f"Error saving plot to {save_path}: {e}")
+    plt.close() # Close the figure to free memory
+
+def train_all_probes(representations_path, save_folder, config=DEFAULT_CONFIG, verbose=False, plot_loss=False):
     """
     Trains a probing model on all layers and types of representations.
+    Optionally plots and saves the training/validation loss curves.
     """
     # create save folder if it doesn't exist
     os.makedirs(save_folder, exist_ok=True)
@@ -445,9 +515,14 @@ def train_all_probes(representations_path, save_folder, config=DEFAULT_CONFIG, v
         # ------------------------------------------------------
 
         # train the model using the *training* loaders
-        train_probing_model(natural_high_eps_train_loader, save_folder+f"/{layer}_natural_high_eps.pt", config, verbose)
-        train_probing_model(low_high_eps_train_loader, save_folder+f"/{layer}_low_high_eps.pt", config, verbose)
-        train_probing_model(natural_low_eps_train_loader, save_folder+f"/{layer}_natural_low_eps.pt", config, verbose)
+        train_loss_history_natural_high_eps, val_loss_history_natural_high_eps = train_probing_model(natural_high_eps_train_loader, natural_high_eps_test_loader, save_folder+f"/{layer}_natural_high_eps.pt", config, verbose)
+        train_loss_history_low_high_eps, val_loss_history_low_high_eps = train_probing_model(low_high_eps_train_loader, low_high_eps_test_loader, save_folder+f"/{layer}_low_high_eps.pt", config, verbose)
+        train_loss_history_natural_low_eps, val_loss_history_natural_low_eps = train_probing_model(natural_low_eps_train_loader, natural_low_eps_test_loader, save_folder+f"/{layer}_natural_low_eps.pt", config, verbose)
+
+        if plot_loss:
+            plot_losses(train_loss_history_natural_high_eps, val_loss_history_natural_high_eps, save_folder+f"/{layer}_natural_high_eps_losses.png")
+            plot_losses(train_loss_history_low_high_eps, val_loss_history_low_high_eps, save_folder+f"/{layer}_low_high_eps_losses.png")
+            plot_losses(train_loss_history_natural_low_eps, val_loss_history_natural_low_eps, save_folder+f"/{layer}_natural_low_eps_losses.png")
 
         # save the dataloaders
         # Save the test loaders for evaluation
@@ -465,6 +540,44 @@ def train_all_probes(representations_path, save_folder, config=DEFAULT_CONFIG, v
         print(f"Finished training probes for all layers.")
 
     return
+
+def evaluate_probe(model, dataloader, criterion, device, verbose=False):
+    """Helper function to evaluate a probing model on a dataloader."""
+    model.eval()  # Set model to evaluation mode
+    correct = 0
+    total = 0
+    total_loss = 0.0
+    num_batches = 0
+    with torch.no_grad():  # Disable gradient calculations
+        for data, target in dataloader:
+            data, target = data.to(device), target.to(device)
+
+            # Flatten the batch before model
+            original_shape = data.shape
+            try:
+                data = data.view(data.size(0), -1) # Flattens dimensions after the first (batch)
+            except RuntimeError as e:
+                print(f"Error reshaping data in evaluate_probe. Original shape: {original_shape}, Target shape: ({data.size(0)}, -1). Error: {e}")
+                # Handle potential empty batches or other issues
+                if data.numel() == 0: # If batch is empty, skip
+                    continue
+                else: # Re-raise if it's another issue
+                    raise e
+
+            outputs = model(data)
+            loss = criterion(outputs, target)
+            total_loss += loss.item()
+            num_batches += 1
+
+            _, predicted = torch.max(outputs.data, 1)
+            total += target.size(0)
+            correct += (predicted == target).sum().item()
+
+    accuracy = 100 * correct / total if total > 0 else 0
+    average_loss = total_loss / num_batches if num_batches > 0 else 0.0
+    # It's good practice to set model back to train mode if called during training loop
+    # model.train() # Caller should handle this if needed.
+    return average_loss, accuracy
 
 def test_probing_model(dataloader, model_path, verbose=False):
     """
@@ -582,7 +695,7 @@ if __name__ == "__main__":
     # dataloader = create_labels_for_representations(natural_layer1, high_eps_layer1, shuffle=True, verbose=True)
     
     # test_all_probes(save_folder="/home/gridsan/hmartinez/distribution-shift/interpretability/probes/test_results", verbose=True)
-    # train_all_probes(representations_path="/home/gridsan/hmartinez/distribution-shift/interpretability/representations50_batches.pt", save_folder="/home/gridsan/hmartinez/distribution-shift/interpretability/probes_all_classes_50_batches", config=DEFAULT_CONFIG, verbose=False)
+    train_all_probes(representations_path="/home/gridsan/hmartinez/distribution-shift/interpretability/representations.pt", save_folder="/home/gridsan/hmartinez/distribution-shift/interpretability/probes_all_classes", config=DEFAULT_CONFIG, verbose=False, plot_loss=True)
 
     # print("Testing singular probe")
     # test_probing_model(dataloader=torch.load("/home/gridsan/hmartinez/distribution-shift/interpretability/probes_all_classes/loaders/test/model.linear_natural_low_eps_test_loader.pt"), model_path="/home/gridsan/hmartinez/distribution-shift/interpretability/probes_all_classes/model.linear_natural_low_eps.pt", verbose=True)
@@ -592,21 +705,21 @@ if __name__ == "__main__":
     # print(f"len of debugging loader: {len(debugging_loader)}")
 
     # sanity check for all layers and configurations
-    for layer in LAYERS_TO_INVESTIGATE:
-        for config in ["natural_high_eps", "low_high_eps", "natural_low_eps"]:
-            # Load the test loader
-            loader_path = f"/home/gridsan/hmartinez/distribution-shift/interpretability/probes_all_classes/loaders/test/{layer}_{config}_test_loader.pt"
-            model_path = f"/home/gridsan/hmartinez/distribution-shift/interpretability/probes_all_classes/{layer}_{config}.pt"
+    # for layer in LAYERS_TO_INVESTIGATE:
+    #     for config in ["natural_high_eps", "low_high_eps", "natural_low_eps"]:
+    #         # Load the test loader
+    #         loader_path = f"/home/gridsan/hmartinez/distribution-shift/interpretability/probes_all_classes/loaders/test/{layer}_{config}_test_loader.pt"
+    #         model_path = f"/home/gridsan/hmartinez/distribution-shift/interpretability/probes_all_classes/{layer}_{config}.pt"
             
-            test_loader = torch.load(loader_path)
+    #         test_loader = torch.load(loader_path)
             
-            # Create sanity check loaders with flipped and random labels
-            flipped_labels_loader, random_labels_loader = sanity_check(test_loader, shuffle=False, verbose=True)
+    #         # Create sanity check loaders with flipped and random labels
+    #         flipped_labels_loader, random_labels_loader = sanity_check(test_loader, shuffle=False, verbose=True)
             
-            # Test the model with flipped labels
-            print(f"Testing All Wrong {layer} {config}")
-            test_probing_model(dataloader=flipped_labels_loader, model_path=model_path, verbose=True)
+    #         # Test the model with flipped labels
+    #         print(f"Testing All Wrong {layer} {config}")
+    #         test_probing_model(dataloader=flipped_labels_loader, model_path=model_path, verbose=True)
             
-            # Test the model with random labels
-            print(f"Testing All Random {layer} {config}")
-            test_probing_model(dataloader=random_labels_loader, model_path=model_path, verbose=True)
+    #         # Test the model with random labels
+    #         print(f"Testing All Random {layer} {config}")
+    #         test_probing_model(dataloader=random_labels_loader, model_path=model_path, verbose=True)
