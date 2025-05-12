@@ -43,6 +43,21 @@ LOW_EPS = {
     "random_start": False,  # standard random start
 }
 
+L2_LOW_EPS = {
+    "constraint": "2",  # Use L2 PGD attack
+    "eps": 0.031,  # small epsilon
+    "step_size": 0.01,  # small step size
+    "iterations": 10,  # standard iterations
+    "random_start": False,  # standard random start
+}
+L2_HIGH_EPS = {
+    "constraint": "2",  # Use L2 PGD attack
+    "eps": 0.031 * 25,  # large epsilon
+    "step_size": 0.1,  # large step size
+    "iterations": 10,  # standard iterations
+    "random_start": False,  # standard random start
+}
+
 
 class CustomDataset(torch.utils.data.Dataset):
     def __init__(self):
@@ -247,16 +262,48 @@ def tv_distance(p_logits, q_logits):
     return 0.5 * (p - q).abs().sum(dim=1)  # (N,)
 
 
-def flip_rate(p_logits, q_logits):
-    p_pred = p_logits.argmax(dim=1)
-    q_pred = q_logits.argmax(dim=1)
-    return (p_pred != q_pred).float().mean()
+def misclassification_rate(logits, true_labels):
+    """
+    Calculate the rate at which predictions from logits disagree with true labels.
+
+    Args:
+        logits: Model output logits (batch_size, num_classes)
+        true_labels: Ground truth labels (batch_size)
+
+    Returns:
+        The proportion of examples where the prediction doesn't match the true label
+    """
+    predictions = logits.argmax(dim=1)
+    true_labels = true_labels.to(predictions.device)
+    incorrect = (predictions != true_labels).float()
+    return incorrect.mean().item()
 
 
-def confidence_drop(p_logits, q_logits):
-    p_conf = F.softmax(p_logits, dim=1).max(dim=1).values
-    q_conf = F.softmax(q_logits, dim=1).max(dim=1).values
-    return p_conf - q_conf
+def confidence_drop(p_logits, q_logits, true_labels):
+    """
+    Calculate the drop in confidence for the true label between original and adversarial examples.
+
+    Args:
+        p_logits: Original model output logits (batch_size, num_classes)
+        q_logits: Adversarial model output logits (batch_size, num_classes)
+        true_labels: Ground truth labels (batch_size)
+
+    Returns:
+        The mean difference in confidence for the true label (original - adversarial)
+    """
+    batch_size = p_logits.shape[0]
+    p_softmax = F.softmax(p_logits, dim=1)
+    q_softmax = F.softmax(q_logits, dim=1)
+
+    # Get confidence for the true label in each example
+    indices = torch.arange(batch_size).to(p_logits.device)
+    true_labels = true_labels.to(p_logits.device)
+
+    p_true_conf = p_softmax[indices, true_labels]
+    q_true_conf = q_softmax[indices, true_labels]
+
+    # Calculate confidence drop (original - adversarial)
+    return (p_true_conf - q_true_conf).mean().item()
 
 
 def generate_adversarial_examples(device="cuda", save_path="path_to_save"):
@@ -282,11 +329,19 @@ def generate_adversarial_examples(device="cuda", save_path="path_to_save"):
     # Full input tensor
     full_inputs = torch.cat([x[0].unsqueeze(0) for x in combined_dataset], dim=0)
 
-    # Define modes
+    # Define modes for both Linf and L2 attacks
     modes = {
+        # Linf attacks (original)
         "normal": {"dataset_low": CustomDataset(), "dataset_high": CustomDataset()},
         "mask": {"dataset_low": CustomDataset(), "dataset_high": CustomDataset()},
         "mask_plus_random": {
+            "dataset_low": CustomDataset(),
+            "dataset_high": CustomDataset(),
+        },
+        # L2 attacks (new)
+        "l2_normal": {"dataset_low": CustomDataset(), "dataset_high": CustomDataset()},
+        "l2_mask": {"dataset_low": CustomDataset(), "dataset_high": CustomDataset()},
+        "l2_mask_plus_random": {
             "dataset_low": CustomDataset(),
             "dataset_high": CustomDataset(),
         },
@@ -300,8 +355,8 @@ def generate_adversarial_examples(device="cuda", save_path="path_to_save"):
                 "kl_high",
                 "tvd_low",
                 "tvd_high",
-                "flip_low",
-                "flip_high",
+                "misclass_low",
+                "misclass_high",
                 "conf_drop_low",
                 "conf_drop_high",
             ]
@@ -309,13 +364,25 @@ def generate_adversarial_examples(device="cuda", save_path="path_to_save"):
         for mode in modes
     }
 
+    # Define the different attack parameters
+    attack_params = {
+        "linf": {
+            "low": LOW_EPS,
+            "high": HIGH_EPS,
+        },
+        "l2": {
+            "low": L2_LOW_EPS,
+            "high": L2_HIGH_EPS,
+        },
+    }
+
     # Helper function
-    def compute_stats(orig_logits, new_logits):
+    def compute_stats(orig_logits, new_logits, true_labels):
         return {
             "kl": kl_divergence(orig_logits, new_logits),
             "tvd": tv_distance(orig_logits, new_logits),
-            "flip": flip_rate(orig_logits, new_logits),
-            "conf_drop": confidence_drop(orig_logits, new_logits),
+            "misclass": misclassification_rate(new_logits, true_labels),
+            "conf_drop": confidence_drop(orig_logits, new_logits, true_labels),
         }
 
     for inputs, labels in tqdm(dataloader, desc="Generating adversarial examples"):
@@ -325,70 +392,78 @@ def generate_adversarial_examples(device="cuda", save_path="path_to_save"):
         with torch.no_grad():
             orig_logits = model(inputs).detach().cpu()
 
-        # Low and high adversarial examples
-        low_logits, low_inputs = attack_model(inputs, labels, make_adv=True, **LOW_EPS)
-        high_logits, high_inputs = attack_model(
-            inputs, labels, make_adv=True, **HIGH_EPS
-        )
-
-        low_logits = low_logits.detach().cpu()
-        high_logits = high_logits.detach().cpu()
-        low_inputs = low_inputs.detach().cpu()
-        high_inputs = high_inputs.detach().cpu()
-        inputs_cpu = inputs.detach().cpu()
-
-        # NORMAL mode
-        for eps_inputs, eps_logits, eps in [
-            (low_inputs, low_logits, "low"),
-            (high_inputs, high_logits, "high"),
-        ]:
-            modes["normal"][f"dataset_{eps}"].append(
-                eps_inputs, eps_logits.softmax(dim=1)
+        # Process both Linf and L2 attacks
+        for norm_type, prefix in [("linf", ""), ("l2", "l2_")]:
+            # Generate adversarial examples with low and high epsilons
+            low_logits, low_inputs = attack_model(
+                inputs, labels, make_adv=True, **attack_params[norm_type]["low"]
             )
-            s = compute_stats(orig_logits, eps_logits)
-            stats["normal"][f"kl_{eps}"].append(s["kl"])
-            stats["normal"][f"tvd_{eps}"].append(s["tvd"])
-            stats["normal"][f"flip_{eps}"].append(s["flip"])
-            stats["normal"][f"conf_drop_{eps}"].append(s["conf_drop"])
-
-        # MASK mode
-        mask_low = torch.clamp(low_inputs - inputs_cpu, -1.0, 1.0)
-        mask_high = torch.clamp(high_inputs - inputs_cpu, -1.0, 1.0)
-
-        for mask_inputs, eps_logits, eps in [
-            (mask_low, low_logits, "low"),
-            (mask_high, high_logits, "high"),
-        ]:
-            modes["mask"][f"dataset_{eps}"].append(
-                mask_inputs, eps_logits.softmax(dim=1)
+            high_logits, high_inputs = attack_model(
+                inputs, labels, make_adv=True, **attack_params[norm_type]["high"]
             )
-            mask_logits = model(mask_inputs.to(device)).detach().cpu()
-            s = compute_stats(orig_logits, mask_logits)
-            stats["mask"][f"kl_{eps}"].append(s["kl"])
-            stats["mask"][f"tvd_{eps}"].append(s["tvd"])
-            stats["mask"][f"flip_{eps}"].append(s["flip"])
-            stats["mask"][f"conf_drop_{eps}"].append(s["conf_drop"])
 
-        # MASK+RANDOM mode
-        rand_indices = torch.randint(0, full_inputs.size(0), (inputs.size(0),))
-        random_images = full_inputs[rand_indices]
+            low_logits = low_logits.detach().cpu()
+            high_logits = high_logits.detach().cpu()
+            low_inputs = low_inputs.detach().cpu()
+            high_inputs = high_inputs.detach().cpu()
+            inputs_cpu = inputs.detach().cpu()
+            labels_cpu = labels.detach().cpu()
 
-        mask_plus_random_low = torch.clamp(mask_low + random_images, 0.0, 1.0)
-        mask_plus_random_high = torch.clamp(mask_high + random_images, 0.0, 1.0)
+            # NORMAL mode
+            for eps_inputs, eps_logits, eps in [
+                (low_inputs, low_logits, "low"),
+                (high_inputs, high_logits, "high"),
+            ]:
+                mode_name = f"{prefix}normal"
+                modes[mode_name][f"dataset_{eps}"].append(
+                    eps_inputs, eps_logits.softmax(dim=1)
+                )
+                s = compute_stats(orig_logits, eps_logits, labels_cpu)
+                stats[mode_name][f"kl_{eps}"].append(s["kl"])
+                stats[mode_name][f"tvd_{eps}"].append(s["tvd"])
+                stats[mode_name][f"misclass_{eps}"].append(s["misclass"])
+                stats[mode_name][f"conf_drop_{eps}"].append(s["conf_drop"])
 
-        for mpr_inputs, eps_logits, eps in [
-            (mask_plus_random_low, low_logits, "low"),
-            (mask_plus_random_high, high_logits, "high"),
-        ]:
-            modes["mask_plus_random"][f"dataset_{eps}"].append(
-                mpr_inputs, eps_logits.softmax(dim=1)
-            )
-            mpr_logits = model(mpr_inputs.to(device)).detach().cpu()
-            s = compute_stats(orig_logits, mpr_logits)
-            stats["mask_plus_random"][f"kl_{eps}"].append(s["kl"])
-            stats["mask_plus_random"][f"tvd_{eps}"].append(s["tvd"])
-            stats["mask_plus_random"][f"flip_{eps}"].append(s["flip"])
-            stats["mask_plus_random"][f"conf_drop_{eps}"].append(s["conf_drop"])
+            # MASK mode
+            mask_low = torch.clamp(low_inputs - inputs_cpu, -1.0, 1.0)
+            mask_high = torch.clamp(high_inputs - inputs_cpu, -1.0, 1.0)
+
+            for mask_inputs, eps_logits, eps in [
+                (mask_low, low_logits, "low"),
+                (mask_high, high_logits, "high"),
+            ]:
+                mode_name = f"{prefix}mask"
+                modes[mode_name][f"dataset_{eps}"].append(
+                    mask_inputs, eps_logits.softmax(dim=1)
+                )
+                mask_logits = model(mask_inputs.to(device)).detach().cpu()
+                s = compute_stats(orig_logits, mask_logits, labels_cpu)
+                stats[mode_name][f"kl_{eps}"].append(s["kl"])
+                stats[mode_name][f"tvd_{eps}"].append(s["tvd"])
+                stats[mode_name][f"misclass_{eps}"].append(s["misclass"])
+                stats[mode_name][f"conf_drop_{eps}"].append(s["conf_drop"])
+
+            # MASK+RANDOM mode
+            rand_indices = torch.randint(0, full_inputs.size(0), (inputs.size(0),))
+            random_images = full_inputs[rand_indices]
+
+            mask_plus_random_low = torch.clamp(mask_low + random_images, 0.0, 1.0)
+            mask_plus_random_high = torch.clamp(mask_high + random_images, 0.0, 1.0)
+
+            for mpr_inputs, eps_logits, eps in [
+                (mask_plus_random_low, low_logits, "low"),
+                (mask_plus_random_high, high_logits, "high"),
+            ]:
+                mode_name = f"{prefix}mask_plus_random"
+                modes[mode_name][f"dataset_{eps}"].append(
+                    mpr_inputs, eps_logits.softmax(dim=1)
+                )
+                mpr_logits = model(mpr_inputs.to(device)).detach().cpu()
+                s = compute_stats(orig_logits, mpr_logits, labels_cpu)
+                stats[mode_name][f"kl_{eps}"].append(s["kl"])
+                stats[mode_name][f"tvd_{eps}"].append(s["tvd"])
+                stats[mode_name][f"misclass_{eps}"].append(s["misclass"])
+                stats[mode_name][f"conf_drop_{eps}"].append(s["conf_drop"])
 
         # Clean up
         del inputs
@@ -401,12 +476,16 @@ def generate_adversarial_examples(device="cuda", save_path="path_to_save"):
 
     # Format plotting data
     def cat(l):
-        return torch.cat(l).numpy()
+        return (
+            torch.cat(l).numpy()
+            if len(l) > 0 and isinstance(l[0], torch.Tensor)
+            else np.array(l)
+        )
 
     plotting_data = {}
     for mode, mode_stats in stats.items():
         for stat_name, values in mode_stats.items():
-            if "flip" in stat_name:
+            if "misclass" in stat_name:
                 plotting_data[f"{stat_name}_{mode}"] = np.array(values)
             else:
                 plotting_data[f"{stat_name}_{mode}"] = cat(values)

@@ -1,8 +1,0 @@
-Model path: /home/gridsan/hmartinez/distribution-shift/models/natural/149_checkpoint.pt
-Small epsilon config: {'constraint': 'inf', 'eps': 0.031, 'step_size': 0.01, 'iterations': 10, 'random_start': False}
-Large epsilon config: {'constraint': 'inf', 'eps': 0.775, 'step_size': 0.1, 'iterations': 10, 'random_start': False}
-Len of loader: 79
-============================================= 
-
-Total samples: 10000
-Disagreement percentage: 77.31%

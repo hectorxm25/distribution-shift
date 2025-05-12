@@ -826,6 +826,7 @@ def run_mask_superimposed_random_experiment(
     save_images=False,
 ):
     """
+    TODO: check this with your experiment
     NOTE: REQUIRES TO BE RUN ON GPU
     Will run the mask superimposed experiment on a random set of images from the test set. It will be done in this exact manner.
     `loader` can be either the test or train loader
