@@ -496,100 +496,102 @@ class ModelWrapper(torch.nn.Module):
 
 if __name__ == "__main__":
 
-    # globals:
-    # Set up argument parser
-    parser = argparse.ArgumentParser(description='Training configuration')
-    parser.add_argument('--output_dir', type=str,
-                    help='Directory to save model checkpoints')
-    parser.add_argument('--eps', type=float, default=0.5,
-                    help='Epsilon value for PGD attack')
-    parser.add_argument('--constraint', type=str, default='2',
-                    choices=['2', 'inf'], help='PGD attack constraint (L2 or Linf)')
-    parser.add_argument('--beta', type=float, default=1.0,
-                    help='Beta value for TRADES')
-    parser.add_argument('--attack_type', type=str, default='pgd',
-                    choices=['pgd', 'trades', 'TRADES', 'none'], help='Attack type')
+    # # globals:
+    # # Set up argument parser
+    # parser = argparse.ArgumentParser(description='Training configuration')
+    # parser.add_argument('--output_dir', type=str,
+    #                 help='Directory to save model checkpoints')
+    # parser.add_argument('--eps', type=float, default=0.5,
+    #                 help='Epsilon value for PGD attack')
+    # parser.add_argument('--constraint', type=str, default='2',
+    #                 choices=['2', 'inf'], help='PGD attack constraint (L2 or Linf)')
+    # parser.add_argument('--beta', type=float, default=1.0,
+    #                 help='Beta value for TRADES')
+    # parser.add_argument('--attack_type', type=str, default='pgd',
+    #                 choices=['pgd', 'trades', 'TRADES', 'none'], help='Attack type')
 
-    args = parser.parse_args()
+    # args = parser.parse_args()
 
-    # Update parameters with command line arguments
-    OUTPUT_DIR = args.output_dir
+    # # Update parameters with command line arguments
+    # OUTPUT_DIR = args.output_dir
 
-    NO_ADVERSARIAL_TRAINING_PARAMS = {
-        'out_dir': OUTPUT_DIR,
-        'adv_train': 0,  # Set to 1 for adversarial training
-        'epochs': 150,
-        'lr': 0.1,
-        'momentum': 0.9,
-        'weight_decay': 5e-4,
-        'step_lr': 50,
-        'step_lr_gamma': 0.1,
-    }
+    # NO_ADVERSARIAL_TRAINING_PARAMS = {
+    #     'out_dir': OUTPUT_DIR,
+    #     'adv_train': 0,  # Set to 1 for adversarial training
+    #     'epochs': 150,
+    #     'lr': 0.1,
+    #     'momentum': 0.9,
+    #     'weight_decay': 5e-4,
+    #     'step_lr': 50,
+    #     'step_lr_gamma': 0.1,
+    # }
 
-    # taken from https://robustness.readthedocs.io/en/latest/api/robustness.defaults.html
+    # # taken from https://robustness.readthedocs.io/en/latest/api/robustness.defaults.html
 
-    ATTACK_PARAMS = {
-        'constraint': args.constraint,      # Use L2 PGD attack
-        'eps': args.eps,            # L2 radius/epsilon
-        'attack_lr': 0.1,      # Step size for PGD
-        'attack_steps': 7,     # Number of PGD steps
-        'random_restarts': 0,   # Number of random restarts
-        'attack_type': args.attack_type, # 'pgd' or 'trades'
-        'beta': args.beta if args.beta else 1.0 # beta for TRADES
-    }
+    # ATTACK_PARAMS = {
+    #     'constraint': args.constraint,      # Use L2 PGD attack
+    #     'eps': args.eps,            # L2 radius/epsilon
+    #     'attack_lr': 0.1,      # Step size for PGD
+    #     'attack_steps': 7,     # Number of PGD steps
+    #     'random_restarts': 0,   # Number of random restarts
+    #     'attack_type': args.attack_type, # 'pgd' or 'trades'
+    #     'beta': args.beta if args.beta else 1.0 # beta for TRADES
+    # }
 
-    NON_ATTACK_PARAMS = {
-        'constraint': args.constraint,      
-        'eps': 0,            # has 0 eps, so no attack, just repeats natural training twice per image
-        'attack_lr': 0.1,      
-        'attack_steps': 7,     
-        'random_restarts': 0   
-    }
+    # NON_ATTACK_PARAMS = {
+    #     'constraint': args.constraint,      
+    #     'eps': 0,            # has 0 eps, so no attack, just repeats natural training twice per image
+    #     'attack_lr': 0.1,      
+    #     'attack_steps': 7,     
+    #     'random_restarts': 0   
+    # }
 
-    ADVERSARIAL_TRAINING_PARAMS = {
-        'out_dir': OUTPUT_DIR,
-        'adv_train': 1,        # Enable adversarial training
-        'epochs': 150, # TODO: maybe change this in the future to see less overfitting in our experiments
-        'lr': 0.1,
-        'momentum': 0.9,
-        'weight_decay': 5e-4,
-        'step_lr': 50,
-        'step_lr_gamma': 0.1,
-        **ATTACK_PARAMS        # Add attack parameters
-    }
+    # ADVERSARIAL_TRAINING_PARAMS = {
+    #     'out_dir': OUTPUT_DIR,
+    #     'adv_train': 1,        # Enable adversarial training
+    #     'epochs': 150, # TODO: maybe change this in the future to see less overfitting in our experiments
+    #     'lr': 0.1,
+    #     'momentum': 0.9,
+    #     'weight_decay': 5e-4,
+    #     'step_lr': 50,
+    #     'step_lr_gamma': 0.1,
+    #     **ATTACK_PARAMS        # Add attack parameters
+    # }
 
-    TWICE_NATURAL_TRAINING_PARAMS = {
-        'out_dir': OUTPUT_DIR,
-        'adv_train': 1,        # Enable adversarial training
-        'epochs': 150,
-        'lr': 0.1,
-        'momentum': 0.9,
-        'weight_decay': 5e-4,
-        'step_lr': 50,
-        'step_lr_gamma': 0.1,
-            **NON_ATTACK_PARAMS        # Add (NON)-attack parameters
-        } 
+    # TWICE_NATURAL_TRAINING_PARAMS = {
+    #     'out_dir': OUTPUT_DIR,
+    #     'adv_train': 1,        # Enable adversarial training
+    #     'epochs': 150,
+    #     'lr': 0.1,
+    #     'momentum': 0.9,
+    #     'weight_decay': 5e-4,
+    #     'step_lr': 50,
+    #     'step_lr_gamma': 0.1,
+    #         **NON_ATTACK_PARAMS        # Add (NON)-attack parameters
+    #     } 
     
-    DATA_PATH = 'datasets'
-    # End of globals  
-    # ----------------------------------------------------------------
+    # DATA_PATH = 'datasets'
+    # # End of globals  
+    # # ----------------------------------------------------------------
 
-    torch.serialization.add_safe_globals([CIFAR]) # small change to handle version issue
+    # torch.serialization.add_safe_globals([CIFAR]) # small change to handle version issue
 
-    print(f"Loading dataset")
-    # load the dataset loaders
-    if not os.path.exists(f"{DATA_PATH}/dataset.pt"):
-        print(f"Dataset not found, creating and saving dataset to {DATA_PATH}/dataset.pt")
-        dataset = create_and_save_dataset(DATA_PATH)
-    dataset, train_loader, test_loader = load_dataset(DATA_PATH)
-    print(f"successfully loaded dataset, starting to train adversarial model: Norm: {args.constraint} Eps: {args.eps}")
-    # train the adversarial model
-    if args.attack_type == 'pgd':
-        model = train_adversarial(ADVERSARIAL_TRAINING_PARAMS, train_loader, test_loader, DATA_PATH)
-    elif args.attack_type == 'none':
-        model = train_no_adversarial(NO_ADVERSARIAL_TRAINING_PARAMS, train_loader, test_loader, DATA_PATH)
-    elif args.attack_type == 'trades' or args.attack_type == 'TRADES':
-        model = train_trades(ADVERSARIAL_TRAINING_PARAMS, train_loader, test_loader, OUTPUT_DIR)
-    print(f"successfully trained adversarial model: Norm: {args.constraint} Eps: {args.eps}")
-    print(f"saving model to {OUTPUT_DIR}")
+    create_and_save_dataset('/u/hectorxm/distribution-shift/dataset')
+
+    # print(f"Loading dataset")
+    # # load the dataset loaders
+    # if not os.path.exists(f"{DATA_PATH}/dataset.pt"):
+    #     print(f"Dataset not found, creating and saving dataset to {DATA_PATH}/dataset.pt")
+    #     dataset = create_and_save_dataset(DATA_PATH)
+    # dataset, train_loader, test_loader = load_dataset(DATA_PATH)
+    # print(f"successfully loaded dataset, starting to train adversarial model: Norm: {args.constraint} Eps: {args.eps}")
+    # # train the adversarial model
+    # if args.attack_type == 'pgd':
+    #     model = train_adversarial(ADVERSARIAL_TRAINING_PARAMS, train_loader, test_loader, DATA_PATH)
+    # elif args.attack_type == 'none':
+    #     model = train_no_adversarial(NO_ADVERSARIAL_TRAINING_PARAMS, train_loader, test_loader, DATA_PATH)
+    # elif args.attack_type == 'trades' or args.attack_type == 'TRADES':
+    #     model = train_trades(ADVERSARIAL_TRAINING_PARAMS, train_loader, test_loader, OUTPUT_DIR)
+    # print(f"successfully trained adversarial model: Norm: {args.constraint} Eps: {args.eps}")
+    # print(f"saving model to {OUTPUT_DIR}")
     

@@ -39,7 +39,7 @@ LAYERS_TO_INVESTIGATE = [
         "model.layer2",
         "model.layer3",
         "model.layer4",
-        "model.linear", # last layer?
+        "model.linear",
     ]
 
 def load_dataset(data_path):

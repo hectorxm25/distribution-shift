@@ -2,7 +2,7 @@ from robustness import model_utils, datasets, train, defaults
 from robustness.datasets import CIFAR
 import torch
 import torch.nn.functional as F
-import cox
+# import cox
 from tqdm import tqdm
 import os
 import re
@@ -10,14 +10,15 @@ import torchvision.utils as vutils
 import random
 import numpy as np
 from TRADES.trades import trades_loss
-import argparse
+# import argparse
+import matplotlib.pyplot as plt
 # local imports
 import mask_generation as mask_gen
 import test
 import train
 import utils
 NO_ADVERSARIAL_TRAINING_PARAMS = {
-        'out_dir': "/home/gridsan/hmartinez/distribution-shift/models/mask_trained_0.031*25eps_0.1stepsize",
+        'out_dir': "/u/hectorxm/distribution-shift/models/mask_trained_0.031*25eps_0.1stepsize",
         'adv_train': 0,  # Set to 1 for adversarial training
         'epochs': 150,
         'lr': 0.1,
@@ -939,16 +940,164 @@ def visualize_masks_and_natural_images(model_path, save_folder, loader, N=3, low
     print(f"Saved images to {save_folder}")
     return
 
+
+def validate_label_flips(model_path, save_path, loader, low_epsilon_config=NORMAL_ATTACK_PARAMS, high_epsilon_config=ATTACK_PARAMS):
+    """
+    This function will validate the label flips of the model on the loader. This will reproduce the graph done by Phoebe to see that we have the same results
+    Note: Must have at least 3 batches in the loader, skips the last two batches to avoid size mismatches at the edges.
+    """
+    # load model
+    dataset = CIFAR('/home/gridsan/hmartinez/distribution-shift/datasets')
+    model, _ = model_utils.make_and_restore_model(arch='resnet18', dataset=dataset, resume_path=model_path)
+    model.eval()
+
+    adversarial_flips = {'small': 0, 'large': 0}
+    mask_flips = {'small': 0, 'large': 0} # This is Mask vs Natural
+    mask_adv_flips = {'small': 0, 'large': 0} # This is Mask vs Adversarial
+    mask_plus_random_flips = {'small': 0, 'large': 0} # This is Mask+Random vs Random Natural
+    total_samples = 0
+
+    all_batches = list(loader)
+    num_batches = len(all_batches)
+
+    # per batch - iterate over all batches except the last two
+    for i in range(num_batches - 2):
+        current_images_cpu, current_labels_cpu = all_batches[i]
+        total_samples += current_labels_cpu.size(0) # Accumulate total samples
+        images = current_images_cpu.cuda()
+        labels_cpu = current_labels_cpu # Keep a CPU copy of original labels for comparisons
+        labels = current_labels_cpu.cuda()
+        # get the adversarial images
+        _, adv_images_small = model(images, labels, make_adv=True, **low_epsilon_config)
+        _, adv_images_large = model(images, labels, make_adv=True, **high_epsilon_config)
+        
+        # get the adversarial labels
+        adv_output_small, _ = model(adv_images_small)
+        adv_predicted_labels_small = adv_output_small.argmax(dim=1).cpu()
+        adv_output_large, _ = model(adv_images_large)
+        adv_predicted_labels_large = adv_output_large.argmax(dim=1).cpu()
+
+        # generate masks
+        masks_large = adv_images_large - images
+        masks_small = adv_images_small - images
+        # get mask labels
+        mask_output_small, _ = model(masks_small)
+        # small debug just to ensure sizes and structures are correct
+        if i == 0:
+            print(f"First couple of mask outputs: {mask_output_small[:10]}")
+        mask_predicted_labels_small = mask_output_small.argmax(dim=1).cpu()
+        if i == 0:
+            print(f"First couple of mask predicted labels: {mask_predicted_labels_small[:10]}")
+        mask_output_large, _ = model(masks_large)
+        mask_predicted_labels_large = mask_output_large.argmax(dim=1).cpu()
+
+        # Produce mask + random image and save the label of the random image
+        # Get the next batch in the loader
+        next_batch_index = (i + 1) % num_batches
+        random_images_for_superimposition_cpu, random_labels_for_superimposition_cpu = all_batches[next_batch_index]
+        
+        # Shuffle the batch while preserving label image mappings
+        batch_size = random_images_for_superimposition_cpu.size(0)
+        shuffled_indices = torch.randperm(batch_size)
+        shuffled_random_batch_images_cpu = random_images_for_superimposition_cpu[shuffled_indices]
+        shuffled_random_batch_labels = random_labels_for_superimposition_cpu[shuffled_indices] # Stays on CPU
+        
+        shuffled_random_batch_images_gpu = shuffled_random_batch_images_cpu.cuda() # Move to GPU for superposition
+
+        # now create the mask + random image, and calculate the label of this
+        masks_plus_random_small = shuffled_random_batch_images_gpu + masks_small
+        masks_plus_random_large = shuffled_random_batch_images_gpu + masks_large
+        mask_plus_random_output_small, _ = model(masks_plus_random_small)
+        mask_plus_random_predicted_labels_small = mask_plus_random_output_small.argmax(dim=1).cpu()
+        mask_plus_random_output_large, _ = model(masks_plus_random_large)
+        mask_plus_random_predicted_labels_large = mask_plus_random_output_large.argmax(dim=1).cpu()
+
+        # Now calculate label flips for each of the three cases we're considering
+        # Adversarial label flips
+        adversarial_flips['small'] += (labels_cpu != adv_predicted_labels_small).sum().item()
+        adversarial_flips['large'] += (labels_cpu != adv_predicted_labels_large).sum().item()
+
+        # Mask label flips, natural and adv
+        mask_flips['small'] += (labels_cpu != mask_predicted_labels_small).sum().item()
+        mask_flips['large'] += (labels_cpu != mask_predicted_labels_large).sum().item()
+        mask_adv_flips['small'] += (adv_predicted_labels_small != mask_predicted_labels_small).sum().item()
+        mask_adv_flips['large'] += (adv_predicted_labels_large != mask_predicted_labels_large).sum().item()
+
+        # Mask label flips, mask + random
+        mask_plus_random_flips['small'] += (shuffled_random_batch_labels.cpu() != mask_plus_random_predicted_labels_small).sum().item()
+        mask_plus_random_flips['large'] += (shuffled_random_batch_labels.cpu() != mask_plus_random_predicted_labels_large).sum().item()
+        
+        # Print the results for this batch
+        print(f"Batch {i} results (cumulative):")
+        print(f"Adversarial label flips (small): {adversarial_flips['small']}")
+        print(f"Adversarial label flips (large): {adversarial_flips['large']}")
+        print(f"Mask label flips (small): {mask_flips['small']}")
+        print(f"Mask label flips (large): {mask_flips['large']}")
+        print(f"Mask + adv label flips (small): {mask_adv_flips['small']}")
+        print(f"Mask + adv label flips (large): {mask_adv_flips['large']}")
+        print(f"Mask + random label flips (small): {mask_plus_random_flips['small']}")
+        print(f"Mask + random label flips (large): {mask_plus_random_flips['large']}")
+        
+
+    # Calculate percentages
+    adv_flip_perc_small = (adversarial_flips['small'] / total_samples) * 100
+    adv_flip_perc_large = (adversarial_flips['large'] / total_samples) * 100
+    mask_flip_perc_small = (mask_flips['small'] / total_samples) * 100
+    mask_flip_perc_large = (mask_flips['large'] / total_samples) * 100
+    mask_adv_flip_perc_small = (mask_adv_flips['small'] / total_samples) * 100
+    mask_adv_flip_perc_large = (mask_adv_flips['large'] / total_samples) * 100
+    mask_plus_random_flip_perc_small = (mask_plus_random_flips['small'] / total_samples) * 100
+    mask_plus_random_flip_perc_large = (mask_plus_random_flips['large'] / total_samples) * 100
+
+    perturbation_types = ['Adversarial', 'Mask vs Natural', 'Mask vs Adversarial', 'Mask + Random']
+    low_eps_rates = [adv_flip_perc_small, mask_flip_perc_small, mask_adv_flip_perc_small, mask_plus_random_flip_perc_small]
+    high_eps_rates = [adv_flip_perc_large, mask_flip_perc_large, mask_adv_flip_perc_large, mask_plus_random_flip_perc_large]
+
+    x = np.arange(len(perturbation_types))  # the label locations
+    width = 0.35  # the width of the bars
+
+    fig, ax = plt.subplots(figsize=(10, 7))
+    rects1 = ax.bar(x - width/2, low_eps_rates, width, label='Low Epsilon', color='blue')
+    rects2 = ax.bar(x + width/2, high_eps_rates, width, label='High Epsilon', color='red')
+
+    # Add some text for labels, title and custom x-axis tick labels, etc.
+    ax.set_ylabel('Flip Rate (%)')
+    ax.set_title('Label Flip Rates Across Attacks (Train Set) - Hector\'s Validation')
+    ax.set_xticks(x)
+    ax.set_xticklabels(perturbation_types)
+    ax.legend()
+    ax.grid(True, linestyle='--', alpha=0.7)
+
+    def autolabel(rects):
+        """Attach a text label above each bar in *rects*, displaying its height."""
+        for rect in rects:
+            height = rect.get_height()
+            ax.annotate(f'{height:.1f}%', # Display one decimal place
+                        xy=(rect.get_x() + rect.get_width() / 2, height),
+                        xytext=(0, 3),  # 3 points vertical offset
+                        textcoords="offset points",
+                        ha='center', va='bottom')
+
+    autolabel(rects1)
+    autolabel(rects2)
+
+    fig.tight_layout()
+
+    plt.savefig(save_path)
+    print(f"Saved label flip plot to {save_path}")
+    plt.close(fig)
+
 if __name__ == "__main__":
-    MODEL_PATH = "/home/gridsan/hmartinez/distribution-shift/models/natural/149_checkpoint.pt"
-    SAVE_PATH = "/home/gridsan/hmartinez/distribution-shift/adversarial/visualizations/image_visualizations"
+    MODEL_PATH = "/u/hectorxm/distribution-shift/models/149_checkpoint.pt"
+    SAVE_PATH = "/u/hectorxm/distribution-shift/adversarial/visualizations/label_flip_rate_validation/train_set_results.png"
     # EXPERIMENT_FOLDER = "/home/gridsan/hmartinez/distribution-shift/adversarial/visualizations/mask_superimposed/experiment_7_randomNoiseMasks_test_set"
     # # Get the training loader
-    _, train_loader, test_loader = train.load_dataset("/home/gridsan/hmartinez/distribution-shift/datasets")
+    _, train_loader, test_loader = train.load_dataset("/u/hectorxm/distribution-shift/dataset")
+    validate_label_flips(MODEL_PATH, SAVE_PATH, train_loader, low_epsilon_config=NORMAL_ATTACK_PARAMS, high_epsilon_config=ATTACK_PARAMS)
     # run_mask_visualization_experiment(MODEL_PATH, SAVE_PATH, test_loader, N=100, random_images=True)
     # # run_mask_training_experiment(MODEL_PATH, SAVE_PATH)
     # # run_random_noise_mask_confidence_experiment(MODEL_PATH)
     # analyze_mask_superimposed_experiment(EXPERIMENT_FOLDER)
     # run_mask_superimposed_random_experiment(MODEL_PATH, SAVE_PATH, test_loader, attack_config=ATTACK_PARAMS, privacy_allocation=10, verbose=True, use_gaussian=True, mu=0, sigma=0.1)
     # check_adversarial_labels(MODEL_PATH, SAVE_PATH, test_loader, small_eps_config=NORMAL_ATTACK_PARAMS, large_eps_config=ATTACK_PARAMS, verbose=True)
-    visualize_masks_and_natural_images(MODEL_PATH, SAVE_PATH, test_loader, N=10, low_epsilon_config=NORMAL_ATTACK_PARAMS, high_epsilon_config=ATTACK_PARAMS)
+    # visualize_masks_and_natural_images(MODEL_PATH, SAVE_PATH, test_loader, N=10, low_epsilon_config=NORMAL_ATTACK_PARAMS, high_epsilon_config=ATTACK_PARAMS)
