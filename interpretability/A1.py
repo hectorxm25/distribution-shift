@@ -33,13 +33,35 @@ DEFAULT_CONFIG = {
     "epochs": 3,
     "batch_size": 128,
 }
-
+# Full granular layers of conv weights and skip layers
 LAYERS_TO_INVESTIGATE = [
-        "model.layer1",
-        "model.layer2",
-        "model.layer3",
-        "model.layer4",
-        "model.linear",
+        "model.layer1", # Output of the entire first ResNet block
+        "model.layer1.0.conv1",
+        "model.layer1.0.conv2",
+        "model.layer1.1.conv1",
+        "model.layer1.1.conv2",
+        "model.layer2", # Output of the entire second ResNet block
+        "model.layer2.0.conv1",
+        "model.layer2.0.conv2",
+        "model.layer2.0.shortcut.0", # Conv layer in shortcut
+        "model.layer2.0.shortcut.1", # BatchNorm layer in shortcut
+        "model.layer2.1.conv1",
+        "model.layer2.1.conv2",
+        "model.layer3", # Output of the entire third ResNet block
+        "model.layer3.0.conv1",
+        "model.layer3.0.conv2",
+        "model.layer3.0.shortcut.0", # Conv layer in shortcut
+        "model.layer3.0.shortcut.1", # BatchNorm layer in shortcut
+        "model.layer3.1.conv1",
+        "model.layer3.1.conv2",
+        "model.layer4", # Output of the entire fourth ResNet block
+        "model.layer4.0.conv1",
+        "model.layer4.0.conv2",
+        "model.layer4.0.shortcut.0", # Conv layer in shortcut
+        "model.layer4.0.shortcut.1", # BatchNorm layer in shortcut
+        "model.layer4.1.conv1",
+        "model.layer4.1.conv2",
+        "model.linear", # Output of the final linear layer
     ]
 
 def load_dataset(data_path):
@@ -114,7 +136,7 @@ def get_intermediate_layer_representations(model_path, loader, save_path, num_ba
     
 
     # load model and dataset first
-    dataset, _, _ = load_dataset(data_path="/home/gridsan/hmartinez/distribution-shift/datasets")
+    dataset, _, _ = load_dataset(data_path="/u/hectorxm/distribution-shift/dataset")
     model = model_utils.make_and_restore_model(
         arch='resnet18',
         dataset=dataset,
@@ -676,14 +698,19 @@ def test_all_probes(save_folder, loaders_path, classifiers_path, verbose=False):
 
 
 if __name__ == "__main__":
-    MODEL_PATH = "/home/gridsan/hmartinez/distribution-shift/models/natural/149_checkpoint.pt"
+    MODEL_PATH = "/u/hectorxm/distribution-shift/models/149_checkpoint.pt"
+    # _, train_loader, _ = load_dataset(data_path="/u/hectorxm/distribution-shift/dataset")
 
+    # get the representations
+    # representations = get_intermediate_layer_representations(MODEL_PATH, train_loader, save_path="/u/hectorxm/distribution-shift/interpretability/representations_10batches_fullLayers.pt", num_batches=10, verbose=True)
+
+    train_all_probes(representations_path="/u/hectorxm/distribution-shift/interpretability/representations_10batches_fullLayers.pt", save_folder="/u/hectorxm/distribution-shift/interpretability/probes_all_layers", config=DEFAULT_CONFIG, verbose=True, plot_loss=True)
     # test some stuff with our representation space/shape
     # representations = torch.load("/home/gridsan/hmartinez/distribution-shift/interpretability/representations.pt")
     # print(f"Representations['model.layer1']['natural_images'] type: {type(representations['model.layer1']['natural_images'])}")
     # print(f"Representations['model.layer1']['natural_images'][0].shape: {representations['model.layer1']['natural_images'][0].shape}")
     # print(f"Representations['model.layer1']['natural_images] length: {len(representations['model.layer1']['natural_images'])}")
-    # _, train_loader, _ = load_dataset(data_path="/home/gridsan/hmartinez/distribution-shift/datasets")
+    
     # # image_batch = next(iter(train_loader))[0]
     # # connect_layer_to_output(MODEL_PATH, "layer1", image_batch, verbose=True)
     # representations = get_intermediate_layer_representations(MODEL_PATH, train_loader, save_path="/home/gridsan/hmartinez/distribution-shift/interpretability/representations50_batches.pt", num_batches=50, verbose=True)
@@ -695,7 +722,7 @@ if __name__ == "__main__":
     # dataloader = create_labels_for_representations(natural_layer1, high_eps_layer1, shuffle=True, verbose=True)
     
     # test_all_probes(save_folder="/home/gridsan/hmartinez/distribution-shift/interpretability/probes/test_results", verbose=True)
-    train_all_probes(representations_path="/home/gridsan/hmartinez/distribution-shift/interpretability/representations.pt", save_folder="/home/gridsan/hmartinez/distribution-shift/interpretability/probes_all_classes", config=DEFAULT_CONFIG, verbose=False, plot_loss=True)
+    # train_all_probes(representations_path="/home/gridsan/hmartinez/distribution-shift/interpretability/representations.pt", save_folder="/home/gridsan/hmartinez/distribution-shift/interpretability/probes_all_classes", config=DEFAULT_CONFIG, verbose=False, plot_loss=True)
 
     # print("Testing singular probe")
     # test_probing_model(dataloader=torch.load("/home/gridsan/hmartinez/distribution-shift/interpretability/probes_all_classes/loaders/test/model.linear_natural_low_eps_test_loader.pt"), model_path="/home/gridsan/hmartinez/distribution-shift/interpretability/probes_all_classes/model.linear_natural_low_eps.pt", verbose=True)
