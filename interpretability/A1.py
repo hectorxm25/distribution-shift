@@ -28,6 +28,23 @@ SMALL_EPS_ATTACK_PARAMS = {
         'random_start': False,  # standard random start
     }
 
+# standard PGD L-2 attack
+L2_SMALL_EPS_ATTACK_PARAMS = {
+        'constraint': '2',      # Use L2 PGD attack
+        'eps': 1.5,            # small epsilon
+        'step_size': 0.01,      # small step size
+        'iterations': 10,      # standard iterations
+        'random_start': False,  # standard random start
+}
+
+L2_LARGE_EPS_ATTACK_PARAMS = {
+        'constraint': '2',      # Use L2 PGD attack
+        'eps': 1.5*25,            # large epsilon
+        'step_size': 0.01,      # NOTE: This is a bit larger than the default step size for large eps attacks that we used for inf attacks
+        'iterations': 10,      # standard iterations
+        'random_start': False,  # standard random start
+    }
+
 DEFAULT_CONFIG = {
     "lr": 0.001,
     "epochs": 3,
@@ -125,15 +142,14 @@ def connect_layer_to_output(model_path, layer_name, image_batch, verbose=False):
     # return GPA, flatten, and output
     return pooled_tensor, flattened_tensor
 
-def get_intermediate_layer_representations(model_path, loader, save_path, num_batches=10, verbose=False):
+def get_intermediate_layer_representations(model_path, loader, save_path, num_batches=10, verbose=False, batch_skip_offset=0):
     """
-    Gets the intermediate layer representations of the loader.
-    Gets `num_batches` representations for each intermediate layer in the model. In this case, these will be the representations of each Resnet18 block.
+    Gets the intermediate layer representations of the loader for a specific chunk of batches.
+    Gets `num_batches` representations for each intermediate layer in the model,
+    starting after `batch_skip_offset` batches.
     Saves the representations as tensors in `save_path`.
     NOTE: Must be done on a GPU
     """
-
-    
 
     # load model and dataset first
     dataset, _, _ = load_dataset(data_path="/u/hectorxm/distribution-shift/dataset")
@@ -165,10 +181,18 @@ def get_intermediate_layer_representations(model_path, loader, save_path, num_ba
 
     # iterate over the loader
     for i, (images, labels) in enumerate(loader):
-        if i == num_batches:
+        if i < batch_skip_offset:
+            if verbose and i == 0: # Print only once per call if skipping
+                print(f"Skipping batches until offset {batch_skip_offset}...")
+            continue
+
+        if i >= batch_skip_offset + num_batches:
+            if verbose:
+                print(f"Processed {num_batches} batches starting from offset {batch_skip_offset}. Stopping.")
             break
+
         if verbose:
-            print(f"Processing batch {i} of {num_batches}")
+            print(f"Processing batch {i} (effective batch index {i - batch_skip_offset} for this chunk) of {num_batches} for this chunk.")
         # move to GPU
         images = images.to("cuda" if torch.cuda.is_available() else "cpu")
         labels = labels.to("cuda" if torch.cuda.is_available() else "cpu")
@@ -176,8 +200,8 @@ def get_intermediate_layer_representations(model_path, loader, save_path, num_ba
             print(f"Images shape: {images.shape}")
             print(f"Labels shape: {labels.shape}")
         # create the small and large epsilon adversarial images to pass in
-        _, small_eps_images = model(images, labels, make_adv=True, **SMALL_EPS_ATTACK_PARAMS)
-        _, large_eps_images = model(images, labels, make_adv=True, **LARGE_EPS_ATTACK_PARAMS)
+        _, small_eps_images = model(images, labels, make_adv=True, **L2_SMALL_EPS_ATTACK_PARAMS) # TODO: CHANGED THIS FROM LINF ATTACK TO L2 ATTACK, CHANGE BACK IF NEEDED
+        _, large_eps_images = model(images, labels, make_adv=True, **L2_LARGE_EPS_ATTACK_PARAMS) # TODO: CHANGED THIS FROM LINF ATTACK TO L2 ATTACK, CHANGE BACK IF NEEDED
         if verbose:
             print(f"Small epsilon adversarial images shape: {small_eps_images.shape}")
             print(f"Large epsilon adversarial images shape: {large_eps_images.shape}")
@@ -193,8 +217,6 @@ def get_intermediate_layer_representations(model_path, loader, save_path, num_ba
                     module_proxy = getattr(module_proxy, part)
                 # Now module_proxy is the proxy for the target layer
                 natural_save_proxy[layer_path] = module_proxy.output.save()
-            if verbose:
-                print(f"Natural save proxy: {natural_save_proxy}")
 
         # get the intermediate layer representations for small epsilon adversarial images
         with nnsight_model.trace(small_eps_images) as trace:
@@ -204,8 +226,6 @@ def get_intermediate_layer_representations(model_path, loader, save_path, num_ba
                 for part in layer_path.split('.'):
                     module_proxy = getattr(module_proxy, part)
                 small_eps_save_proxy[layer_path] = module_proxy.output.save()
-            if verbose:
-                print(f"Small epsilon save proxy: {small_eps_save_proxy}")
 
         # get the intermediate layer representations for large epsilon adversarial images
         with nnsight_model.trace(large_eps_images) as trace:
@@ -215,26 +235,17 @@ def get_intermediate_layer_representations(model_path, loader, save_path, num_ba
                 for part in layer_path.split('.'):
                     module_proxy = getattr(module_proxy, part)
                 large_eps_save_proxy[layer_path] = module_proxy.output.save()
-            if verbose:
-                print(f"Large epsilon save proxy: {large_eps_save_proxy}")
         # save proxy representations into the representations dictionary
         for layer in LAYERS_TO_INVESTIGATE:
             representations[layer]["natural_images"].append(natural_save_proxy[layer].value.detach().cpu())
             representations[layer]["low_eps_images"].append(small_eps_save_proxy[layer].value.detach().cpu())
             representations[layer]["high_eps_images"].append(large_eps_save_proxy[layer].value.detach().cpu())
 
-       
-
-    if verbose:
-        print(f"After All Loops, Representations shape layer1 natural_images: {representations['model.layer1']['natural_images'][0].shape}")
-        print(f"After All Loops, Representations shape layer1 low_eps_images: {representations['model.layer1']['low_eps_images'][0].shape}")
-        print(f"After All Loops, Representations shape layer1 high_eps_images: {representations['model.layer1']['high_eps_images'][0].shape}")
-        print(f"After All Loops, Len of representations layer1 natural_images: {len(representations['model.layer1']['natural_images'])}")
-        print(f"After All Loops, Len of representations layer1 low_eps_images: {len(representations['model.layer1']['low_eps_images'])}")
-        print(f"After All Loops, Len of representations layer1 high_eps_images: {len(representations['model.layer1']['high_eps_images'])}")
-        print(f"After All Loops, natural_images_layer_1_0: {representations['model.layer1']['natural_images'][0]}")
     # save the representations
     torch.save(representations, save_path)
+
+    if verbose:
+        print(f"Saved representations for batches {batch_skip_offset} to {batch_skip_offset + num_batches -1} at {save_path}")
 
     return representations
 
@@ -369,6 +380,69 @@ def get_representation(path_to_representations, layer_name, rep_type, verbose=Fa
     #     print(f"  Shape after flattening (returned): {all_reps_flattened.shape}")
 
     # return all_reps_flattened
+
+def consolidate_chunked_representations(chunk_file_paths, final_save_path, verbose=False):
+    """
+    Consolidates multiple chunked representation files into a single file.
+
+    Args:
+        chunk_file_paths (list[str]): List of paths to the .pt files for each chunk.
+        final_save_path (str): Path to save the final consolidated representations .pt file.
+        verbose (bool): If True, print progress.
+    """
+    if not chunk_file_paths:
+        print("Warning: No chunk file paths provided for consolidation.")
+        return
+
+    # Initialize the consolidated representations dictionary based on the structure of the first chunk
+    # This assumes all chunks have the same layers and representation types.
+    first_chunk_data = torch.load(chunk_file_paths[0])
+    consolidated_representations = {layer_name: {
+        "natural_images": [],
+        "low_eps_images": [],
+        "high_eps_images": []
+    } for layer_name in first_chunk_data.keys()}
+
+    if verbose:
+        print(f"Initialized consolidated_representations with layers: {list(consolidated_representations.keys())}")
+
+    for i, file_path in enumerate(chunk_file_paths):
+        if verbose:
+            print(f"Processing chunk {i+1}/{len(chunk_file_paths)}: {file_path}")
+        try:
+            chunk_data = torch.load(file_path)
+            for layer_name in consolidated_representations.keys():
+                if layer_name in chunk_data:
+                    for rep_type in consolidated_representations[layer_name].keys():
+                        if rep_type in chunk_data[layer_name] and chunk_data[layer_name][rep_type]:
+                            consolidated_representations[layer_name][rep_type].extend(chunk_data[layer_name][rep_type])
+                        elif verbose:
+                            print(f"  Warning: Rep type '{rep_type}' missing or empty in layer '{layer_name}' of chunk {file_path}")
+                elif verbose:
+                    print(f"  Warning: Layer '{layer_name}' missing in chunk {file_path}")
+        except FileNotFoundError:
+            print(f"Error: Chunk file not found: {file_path}. Skipping this file.")
+            continue
+        except Exception as e:
+            print(f"Error loading or processing chunk file {file_path}: {e}. Skipping this file.")
+            continue
+
+    if verbose:
+        for layer_name in consolidated_representations.keys():
+            for rep_type in consolidated_representations[layer_name].keys():
+                num_batches_total = len(consolidated_representations[layer_name][rep_type])
+                print(f"  Layer '{layer_name}', Rep_type '{rep_type}': Total batches after consolidation = {num_batches_total}")
+                if num_batches_total > 0:
+                    print(f"    Shape of first batch: {consolidated_representations[layer_name][rep_type][0].shape}")
+
+    try:
+        torch.save(consolidated_representations, final_save_path)
+        if verbose:
+            print(f"Successfully saved consolidated representations to {final_save_path}")
+    except Exception as e:
+        print(f"Error saving consolidated representations to {final_save_path}: {e}")
+
+    return consolidated_representations
 
 class ProbingModel(nn.Module):
     """
@@ -671,19 +745,17 @@ def test_probing_model(dataloader, model_path, verbose=False):
     return accuracy, total_loss
 
 # TODO: Finish this for a complete test of all probes
-def test_all_probes(save_folder, loaders_path, classifiers_path, verbose=False):
+def test_all_probes(save_folder, loaders_path, classifiers_path, verbose=False, save_plots=False):
     """
     Tests all probes on the test loaders and train loaders.
     Assumes standard naming conventions for classifier files and for loader files.
     """
-    # load the test and train loaders, CHANGE NAMES IF NECESSARY
-    natural_high_eps_test_loader = torch.load(loaders_path+"/natural_high_eps_test_loader.pt")
-    low_high_eps_test_loader = torch.load(loaders_path+"/low_high_eps_test_loader.pt")
-    natural_low_eps_test_loader = torch.load(loaders_path+"/natural_low_eps_test_loader.pt")
+    
 
-    natural_high_eps_train_loader = torch.load(loaders_path+"/natural_high_eps_train_loader.pt")
-    low_high_eps_train_loader = torch.load(loaders_path+"/low_high_eps_train_loader.pt")
-    natural_low_eps_train_loader = torch.load(loaders_path+"/natural_low_eps_train_loader.pt")
+    # # currently not used, but could be used if we expect different train/test behaviors
+    # natural_high_eps_train_loader = torch.load(loaders_path+"/natural_high_eps_train_loader.pt")
+    # low_high_eps_train_loader = torch.load(loaders_path+"/low_high_eps_train_loader.pt")
+    # natural_low_eps_train_loader = torch.load(loaders_path+"/natural_low_eps_train_loader.pt")
 
     # set up natural, low, and high configurations
     correlate_configurations = ["natural_high_eps", "low_high_eps", "natural_low_eps"]
@@ -691,62 +763,207 @@ def test_all_probes(save_folder, loaders_path, classifiers_path, verbose=False):
     # store results as dictionary
     results = {}
 
+    print(f"Testing all probes. Results will be saved in: {save_folder}")
     for layer in LAYERS_TO_INVESTIGATE:
+        print(f"Testing layer: {layer}")
+        # load the test and train loaders, CHANGE NAMES IF NECESSARY
+        natural_high_eps_test_loader = torch.load(loaders_path+f"/{layer}_natural_high_eps_test_loader.pt")
+        low_high_eps_test_loader = torch.load(loaders_path+f"/{layer}_low_high_eps_test_loader.pt")
+        natural_low_eps_test_loader = torch.load(loaders_path+f"/{layer}_natural_low_eps_test_loader.pt")
+
         for config in correlate_configurations:
+            print(f"Testing config: {config}")
             model_path = classifiers_path+"/"+layer+"_"+config+".pt"
-            accuracy, total_loss = test_probing_model(dataloader=natural_high_eps_test_loader, model_path=model_path, verbose=verbose)
+            if config == "natural_high_eps":
+                accuracy, total_loss = test_probing_model(dataloader=natural_high_eps_test_loader, model_path=model_path, verbose=verbose)
+            elif config == "low_high_eps":
+                accuracy, total_loss = test_probing_model(dataloader=low_high_eps_test_loader, model_path=model_path, verbose=verbose)
+            elif config == "natural_low_eps":
+                accuracy, total_loss = test_probing_model(dataloader=natural_low_eps_test_loader, model_path=model_path, verbose=verbose)
+            
+            results[layer+"_"+config] = {"accuracy": accuracy, "total_loss": total_loss}
+
+    # save results as a .pt file
+    torch.save(results, save_folder+"/probing_test_results.pt")
+
+    if save_plots:
+        # plot the results, makes 6 plots, two plots for each of the three configuration: one for accuracy and one for loss
+        # each plot will be a bar graph that shows every layer given a certain configuration. 
+        
+        layers_for_plot = [l.replace("model.", "") for l in LAYERS_TO_INVESTIGATE]
+        x_indices = np.arange(len(layers_for_plot))
+
+        for config_name in correlate_configurations:
+            accuracies = [results[f"{layer}_{config_name}"]["accuracy"] for layer in LAYERS_TO_INVESTIGATE]
+            losses = [results[f"{layer}_{config_name}"]["total_loss"] for layer in LAYERS_TO_INVESTIGATE]
+            
+            config_title_name = config_name.replace("_", " ").title()
+
+            # --- Accuracy Plot for current configuration ---
+            fig_acc, ax_acc = plt.subplots(figsize=(18, 10)) # Wider figure for more layers
+            bars_acc = ax_acc.bar(x_indices, accuracies, color='skyblue')
+
+            ax_acc.set_ylabel('Accuracy (%)')
+            ax_acc.set_xlabel('Layer')
+            ax_acc.set_title(f'Probing Model Accuracy for {config_title_name} by Layer')
+            ax_acc.set_xticks(x_indices)
+            ax_acc.set_xticklabels(layers_for_plot, rotation=60, ha="right") # Rotate labels
+            ax_acc.grid(True, linestyle='--', alpha=0.7)
+
+            # Helper to add labels to bars
+            def autolabel(rects, ax):
+                for rect in rects:
+                    height = rect.get_height()
+                    ax.annotate(f'{height:.1f}', # Display one decimal place
+                                xy=(rect.get_x() + rect.get_width() / 2, height),
+                                xytext=(0, 3),  # 3 points vertical offset
+                                textcoords="offset points",
+                                ha='center', va='bottom', fontsize=8)
+
+            autolabel(bars_acc, ax_acc)
+            fig_acc.tight_layout()
+            acc_plot_path = os.path.join(save_folder, f"accuracy_plot_{config_name}.png")
+            plt.savefig(acc_plot_path)
+            print(f"Saved accuracy plot to {acc_plot_path}")
+            plt.close(fig_acc)
+
+            # --- Loss Plot for current configuration ---
+            fig_loss, ax_loss = plt.subplots(figsize=(18, 10)) # Wider figure
+            bars_loss = ax_loss.bar(x_indices, losses, color='salmon')
+
+            ax_loss.set_ylabel('Total Loss')
+            ax_loss.set_xlabel('Layer')
+            ax_loss.set_title(f'Probing Model Total Loss for {config_title_name} by Layer')
+            ax_loss.set_xticks(x_indices)
+            ax_loss.set_xticklabels(layers_for_plot, rotation=60, ha="right") # Rotate labels
+            ax_loss.grid(True, linestyle='--', alpha=0.7)
+
+            autolabel(bars_loss, ax_loss)
+            fig_loss.tight_layout()
+            loss_plot_path = os.path.join(save_folder, f"loss_plot_{config_name}.png")
+            plt.savefig(loss_plot_path)
+            print(f"Saved total loss plot to {loss_plot_path}")
+            plt.close(fig_loss)
+
+    return results
 
 
 if __name__ == "__main__":
     MODEL_PATH = "/u/hectorxm/distribution-shift/models/149_checkpoint.pt"
-    # _, train_loader, _ = load_dataset(data_path="/u/hectorxm/distribution-shift/dataset")
-
-    # get the representations
-    # representations = get_intermediate_layer_representations(MODEL_PATH, train_loader, save_path="/u/hectorxm/distribution-shift/interpretability/representations_10batches_fullLayers.pt", num_batches=10, verbose=True)
-
-    train_all_probes(representations_path="/u/hectorxm/distribution-shift/interpretability/representations_10batches_fullLayers.pt", save_folder="/u/hectorxm/distribution-shift/interpretability/probes_all_layers", config=DEFAULT_CONFIG, verbose=True, plot_loss=True)
-    # test some stuff with our representation space/shape
-    # representations = torch.load("/home/gridsan/hmartinez/distribution-shift/interpretability/representations.pt")
-    # print(f"Representations['model.layer1']['natural_images'] type: {type(representations['model.layer1']['natural_images'])}")
-    # print(f"Representations['model.layer1']['natural_images'][0].shape: {representations['model.layer1']['natural_images'][0].shape}")
-    # print(f"Representations['model.layer1']['natural_images] length: {len(representations['model.layer1']['natural_images'])}")
+    DATASET_PATH = "/u/hectorxm/distribution-shift/dataset"
+    BASE_SAVE_DIR = "/u/hectorxm/distribution-shift/interpretability"
     
-    # # image_batch = next(iter(train_loader))[0]
-    # # connect_layer_to_output(MODEL_PATH, "layer1", image_batch, verbose=True)
-    # representations = get_intermediate_layer_representations(MODEL_PATH, train_loader, save_path="/home/gridsan/hmartinez/distribution-shift/interpretability/representations50_batches.pt", num_batches=50, verbose=True)
-    # # print(f"After Main, representations: {representations}")
-
-    # natural_layer1 = get_representation(path_to_representations="/home/gridsan/hmartinez/distribution-shift/interpretability/representations.pt", layer_name="model.layer1", rep_type="natural_images", verbose=True)
-    # high_eps_layer1 = get_representation(path_to_representations="/home/gridsan/hmartinez/distribution-shift/interpretability/representations.pt", layer_name="model.layer1", rep_type="high_eps_images", verbose=True)
-    # # create dataloader
-    # dataloader = create_labels_for_representations(natural_layer1, high_eps_layer1, shuffle=True, verbose=True)
+    # --- Configuration for Batch Processing ---
+    CHUNK_SIZE = 10  # Number of batches to process at a time
+    DESIRED_TOTAL_BATCHES = 100 # Target total number of batches
     
-    # test_all_probes(save_folder="/home/gridsan/hmartinez/distribution-shift/interpretability/probes/test_results", verbose=True)
-    # train_all_probes(representations_path="/home/gridsan/hmartinez/distribution-shift/interpretability/representations.pt", save_folder="/home/gridsan/hmartinez/distribution-shift/interpretability/probes_all_classes", config=DEFAULT_CONFIG, verbose=False, plot_loss=True)
+    CHUNKED_REPS_SAVE_DIR = os.path.join(BASE_SAVE_DIR, "L-2_representations_chunked")
+    CONSOLIDATED_REPS_FILENAME = f"L-2_representations_{DESIRED_TOTAL_BATCHES}batches_fullLayers.pt"
+    CONSOLIDATED_REPS_SAVE_PATH = os.path.join(BASE_SAVE_DIR, CONSOLIDATED_REPS_FILENAME)
+    
+    # Define base directory for this run's probes and results based on total batches
+    RUN_SPECIFIC_DIR = os.path.join(BASE_SAVE_DIR, f"L-2_probes_all_layers_{DESIRED_TOTAL_BATCHES}batches")
+    PROBES_SAVE_DIR = os.path.join(RUN_SPECIFIC_DIR, "probes") # Models and loaders subdir will be here
+    RESULTS_SAVE_DIR = os.path.join(RUN_SPECIFIC_DIR, "test_results")
 
-    # print("Testing singular probe")
-    # test_probing_model(dataloader=torch.load("/home/gridsan/hmartinez/distribution-shift/interpretability/probes_all_classes/loaders/test/model.linear_natural_low_eps_test_loader.pt"), model_path="/home/gridsan/hmartinez/distribution-shift/interpretability/probes_all_classes/model.linear_natural_low_eps.pt", verbose=True)
+    os.makedirs(CHUNKED_REPS_SAVE_DIR, exist_ok=True)
+    os.makedirs(PROBES_SAVE_DIR, exist_ok=True) 
+    os.makedirs(RESULTS_SAVE_DIR, exist_ok=True)
 
-    # debugging_loader = torch.load("/home/gridsan/hmartinez/distribution-shift/interpretability/probes_all_classes/loaders/test/model.layer1_low_high_eps_test_loader.pt")
-    # print(f"Debugging loader: {debugging_loader}")
-    # print(f"len of debugging loader: {len(debugging_loader)}")
+    _, train_loader, _ = load_dataset(data_path=DATASET_PATH)
 
-    # sanity check for all layers and configurations
-    # for layer in LAYERS_TO_INVESTIGATE:
-    #     for config in ["natural_high_eps", "low_high_eps", "natural_low_eps"]:
-    #         # Load the test loader
-    #         loader_path = f"/home/gridsan/hmartinez/distribution-shift/interpretability/probes_all_classes/loaders/test/{layer}_{config}_test_loader.pt"
-    #         model_path = f"/home/gridsan/hmartinez/distribution-shift/interpretability/probes_all_classes/{layer}_{config}.pt"
+    # --- 1. Generate Representations in Chunks ---
+    chunk_file_paths = []
+    num_loops = (DESIRED_TOTAL_BATCHES + CHUNK_SIZE - 1) // CHUNK_SIZE # Ceiling division
+
+    print(f"Starting representation generation for {DESIRED_TOTAL_BATCHES} batches in chunks of {CHUNK_SIZE}...")
+    for i in range(num_loops):
+        current_offset = i * CHUNK_SIZE
+        # Determine the number of batches for this specific chunk
+        batches_in_this_chunk = min(CHUNK_SIZE, DESIRED_TOTAL_BATCHES - current_offset)
             
-    #         test_loader = torch.load(loader_path)
-            
-    #         # Create sanity check loaders with flipped and random labels
-    #         flipped_labels_loader, random_labels_loader = sanity_check(test_loader, shuffle=False, verbose=True)
-            
-    #         # Test the model with flipped labels
-    #         print(f"Testing All Wrong {layer} {config}")
-    #         test_probing_model(dataloader=flipped_labels_loader, model_path=model_path, verbose=True)
-            
-    #         # Test the model with random labels
-    #         print(f"Testing All Random {layer} {config}")
-    #         test_probing_model(dataloader=random_labels_loader, model_path=model_path, verbose=True)
+        chunk_save_path = os.path.join(CHUNKED_REPS_SAVE_DIR, f"representations_chunk_{i}_offset_{current_offset}_nbatches_{batches_in_this_chunk}.pt")
+        print(f"--- Processing Chunk {i+1}/{num_loops} (Offset: {current_offset}, Batches: {batches_in_this_chunk}) ---")
+        print(f"Saving chunk to: {chunk_save_path}")
+        
+        # Potentially, only run if file doesn't exist to allow resuming
+        if not os.path.exists(chunk_save_path):
+            get_intermediate_layer_representations(
+                MODEL_PATH,
+                train_loader,
+                save_path=chunk_save_path,
+                num_batches=batches_in_this_chunk,
+                batch_skip_offset=current_offset,
+                verbose=True
+            )
+        else:
+            print(f"Chunk file {chunk_save_path} already exists. Skipping generation for this chunk.")
+        chunk_file_paths.append(chunk_save_path)
+    
+    # Ensure all expected chunk files are present before consolidation
+    actual_chunk_files_present = [p for p in chunk_file_paths if os.path.exists(p)]
+    if len(actual_chunk_files_present) != num_loops:
+        print(f"Warning: Expected {num_loops} chunk files, but only found {len(actual_chunk_files_present)}. Proceeding with available files.")
+    
+    print("Finished generating all representation chunks.")
+
+    # --- 2. Consolidate Chunked Representations ---
+    if not os.path.exists(CONSOLIDATED_REPS_SAVE_PATH) or len(actual_chunk_files_present) > 0 : # Only consolidate if target doesn't exist or new chunks were processed
+        print(f"Consolidating {len(actual_chunk_files_present)} representation chunks into {CONSOLIDATED_REPS_SAVE_PATH}...")
+        consolidate_chunked_representations(
+            actual_chunk_files_present, # Use only files that were actually created/found
+            CONSOLIDATED_REPS_SAVE_PATH,
+            verbose=True
+        )
+        print("Finished consolidating representations.")
+    else:
+        print(f"Consolidated file {CONSOLIDATED_REPS_SAVE_PATH} already exists and no new chunks processed. Skipping consolidation.")
+
+
+    # --- 3. Train All Probes using Consolidated Representations ---
+    print(f"Training all probes using consolidated representations from: {CONSOLIDATED_REPS_SAVE_PATH}")
+    print(f"Probes and related files will be saved in: {PROBES_SAVE_DIR}")
+    print(f"Training all probes with config: {DEFAULT_CONFIG}")
+    # Check if probes already exist for this configuration to avoid retraining.
+    # A simple check could be if the directory PROBES_SAVE_DIR already has .pt model files for layers.
+    # This is a basic check; more robust would be to check for specific expected output files.
+    # For now, we proceed to train_all_probes, which itself might have internal checks or overwrite.
+    train_all_probes(
+        representations_path=CONSOLIDATED_REPS_SAVE_PATH,
+        save_folder=PROBES_SAVE_DIR, 
+        config=DEFAULT_CONFIG,
+        verbose=True,
+        plot_loss=True
+    )
+    print("Finished training all probes.")
+
+    # --- 4. Test All Probes ---
+    # Loaders for testing are saved by train_all_probes inside PROBES_SAVE_DIR/loaders/test
+    loaders_for_testing_path = os.path.join(PROBES_SAVE_DIR, "loaders", "test")
+    # Probes (classifiers) are saved by train_all_probes directly in PROBES_SAVE_DIR
+    classifiers_for_testing_path = PROBES_SAVE_DIR 
+
+    print(f"Testing all probes. Results will be saved in: {RESULTS_SAVE_DIR}")
+    if not os.path.exists(loaders_for_testing_path):
+        print(f"Error: Test loaders directory not found at {loaders_for_testing_path}. Cannot run tests. Ensure train_all_probes ran successfully.")
+    else:
+        results = test_all_probes(
+            save_folder=RESULTS_SAVE_DIR, 
+            loaders_path=loaders_for_testing_path,
+            classifiers_path=classifiers_for_testing_path,
+            verbose=False, 
+            save_plots=True
+        )
+        print(f"Finished testing all probes. Results summary saved in {RESULTS_SAVE_DIR}.")
+        # print(f"Detailed results: {results}") # Optionally print full results dictionary
+
+    # Example of how you might have previously run parts (for reference, now handled by the new workflow)
+    # Original test_all_probes call:
+    # results = test_all_probes(save_folder="/u/hectorxm/distribution-shift/interpretability/probes_all_layers/test_results", 
+    #                           loaders_path="/u/hectorxm/distribution-shift/interpretability/probes_all_layers/loaders/test", 
+    #                           classifiers_path="/u/hectorxm/distribution-shift/interpretability/probes_all_layers/probes", 
+    #                           verbose=True, save_plots=True)
+    # Original train_all_probes call:
+    # train_all_probes(representations_path="/u/hectorxm/distribution-shift/interpretability/representations_10batches_fullLayers.pt", 
+    #                  save_folder="/u/hectorxm/distribution-shift/interpretability/probes_all_layers", 
+    #                  config=DEFAULT_CONFIG, verbose=True, plot_loss=True)
