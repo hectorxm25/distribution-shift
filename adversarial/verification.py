@@ -312,8 +312,10 @@ def generate_adversarial_examples(device="cuda", save_path="path_to_save"):
     trainset = CIFAR10(root="data", train=True, download=True, transform=ToTensor())
     testset = CIFAR10(root="data", train=False, download=True, transform=ToTensor())
     combined_dataset = torch.utils.data.ConcatDataset([trainset, testset])
+
+    # Reduce batch size significantly
     dataloader = DataLoader(
-        combined_dataset, batch_size=128, shuffle=False, num_workers=2
+        combined_dataset, batch_size=32, shuffle=False, num_workers=2
     )
 
     # Load model
@@ -325,9 +327,6 @@ def generate_adversarial_examples(device="cuda", save_path="path_to_save"):
     dummy_cifar = DummyCifar10()
     attack_model = attacker.AttackerModel(model, dummy_cifar)
     attack_model.to(device)
-
-    # Full input tensor
-    full_inputs = torch.cat([x[0].unsqueeze(0) for x in combined_dataset], dim=0)
 
     # Define modes for both Linf and L2 attacks
     modes = {
@@ -385,6 +384,22 @@ def generate_adversarial_examples(device="cuda", save_path="path_to_save"):
             "conf_drop": confidence_drop(orig_logits, new_logits, true_labels),
         }
 
+    # Process in smaller groups to avoid memory issues
+    random_pool = []  # Store a small pool of random samples
+    random_labels_pool = []  # Store corresponding labels
+    pool_size = 1000
+    pool_index = 0
+
+    # Fill random pool initially
+    for i in range(min(pool_size, len(combined_dataset))):
+        x, label = combined_dataset[i]
+        random_pool.append(x.unsqueeze(0))
+        random_labels_pool.append(label)
+
+    random_pool = torch.cat(random_pool, dim=0)
+    random_labels_pool = torch.tensor(random_labels_pool)
+
+    # Process batches
     for inputs, labels in tqdm(dataloader, desc="Generating adversarial examples"):
         inputs = inputs.to(device)
         labels = labels.to(device)
@@ -392,81 +407,144 @@ def generate_adversarial_examples(device="cuda", save_path="path_to_save"):
         with torch.no_grad():
             orig_logits = model(inputs).detach().cpu()
 
-        # Process both Linf and L2 attacks
+        # Process one attack type at a time to save memory
         for norm_type, prefix in [("linf", ""), ("l2", "l2_")]:
-            # Generate adversarial examples with low and high epsilons
+            # Generate adversarial examples with low epsilon
             low_logits, low_inputs = attack_model(
                 inputs, labels, make_adv=True, **attack_params[norm_type]["low"]
             )
+
+            low_logits = low_logits.detach().cpu()
+            low_inputs = low_inputs.detach().cpu()
+            inputs_cpu = inputs.detach().cpu()
+            labels_cpu = labels.detach().cpu()
+
+            # Process low epsilon examples
+            # NORMAL mode - uses original labels
+            mode_name = f"{prefix}normal"
+            modes[mode_name]["dataset_low"].append(
+                low_inputs, low_logits.softmax(dim=1)
+            )
+            s = compute_stats(orig_logits, low_logits, labels_cpu)
+            stats[mode_name]["kl_low"].append(s["kl"])
+            stats[mode_name]["tvd_low"].append(s["tvd"])
+            stats[mode_name]["misclass_low"].append(s["misclass"])
+            stats[mode_name]["conf_drop_low"].append(s["conf_drop"])
+
+            # MASK mode - also uses original labels
+            mask_low = torch.clamp(low_inputs - inputs_cpu, -1.0, 1.0)
+
+            mode_name = f"{prefix}mask"
+            modes[mode_name]["dataset_low"].append(mask_low, low_logits.softmax(dim=1))
+            mask_logits = model(mask_low.to(device)).detach().cpu()
+            s = compute_stats(orig_logits, mask_logits, labels_cpu)
+            stats[mode_name]["kl_low"].append(s["kl"])
+            stats[mode_name]["tvd_low"].append(s["tvd"])
+            stats[mode_name]["misclass_low"].append(s["misclass"])
+            stats[mode_name]["conf_drop_low"].append(s["conf_drop"])
+
+            # MASK+RANDOM mode - uses labels from random images
+            rand_indices = torch.randint(0, random_pool.size(0), (inputs.size(0),))
+            random_images = random_pool[rand_indices]
+            random_labels = random_labels_pool[rand_indices]
+
+            mask_plus_random_low = torch.clamp(mask_low + random_images, 0.0, 1.0)
+
+            mode_name = f"{prefix}mask_plus_random"
+            modes[mode_name]["dataset_low"].append(
+                mask_plus_random_low, low_logits.softmax(dim=1)
+            )
+            mpr_logits = model(mask_plus_random_low.to(device)).detach().cpu()
+            s = compute_stats(orig_logits, mpr_logits, random_labels)
+            stats[mode_name]["kl_low"].append(s["kl"])
+            stats[mode_name]["tvd_low"].append(s["tvd"])
+            stats[mode_name]["misclass_low"].append(s["misclass"])
+            stats[mode_name]["conf_drop_low"].append(s["conf_drop"])
+
+            # Clean up low epsilon tensors
+            del low_logits, low_inputs, mask_low, mask_plus_random_low
+            torch.cuda.empty_cache()
+
+            # Generate adversarial examples with high epsilon
             high_logits, high_inputs = attack_model(
                 inputs, labels, make_adv=True, **attack_params[norm_type]["high"]
             )
 
-            low_logits = low_logits.detach().cpu()
             high_logits = high_logits.detach().cpu()
-            low_inputs = low_inputs.detach().cpu()
             high_inputs = high_inputs.detach().cpu()
-            inputs_cpu = inputs.detach().cpu()
-            labels_cpu = labels.detach().cpu()
 
+            # Process high epsilon examples
             # NORMAL mode
-            for eps_inputs, eps_logits, eps in [
-                (low_inputs, low_logits, "low"),
-                (high_inputs, high_logits, "high"),
-            ]:
-                mode_name = f"{prefix}normal"
-                modes[mode_name][f"dataset_{eps}"].append(
-                    eps_inputs, eps_logits.softmax(dim=1)
-                )
-                s = compute_stats(orig_logits, eps_logits, labels_cpu)
-                stats[mode_name][f"kl_{eps}"].append(s["kl"])
-                stats[mode_name][f"tvd_{eps}"].append(s["tvd"])
-                stats[mode_name][f"misclass_{eps}"].append(s["misclass"])
-                stats[mode_name][f"conf_drop_{eps}"].append(s["conf_drop"])
+            mode_name = f"{prefix}normal"
+            modes[mode_name]["dataset_high"].append(
+                high_inputs, high_logits.softmax(dim=1)
+            )
+            s = compute_stats(orig_logits, high_logits, labels_cpu)
+            stats[mode_name]["kl_high"].append(s["kl"])
+            stats[mode_name]["tvd_high"].append(s["tvd"])
+            stats[mode_name]["misclass_high"].append(s["misclass"])
+            stats[mode_name]["conf_drop_high"].append(s["conf_drop"])
 
             # MASK mode
-            mask_low = torch.clamp(low_inputs - inputs_cpu, -1.0, 1.0)
             mask_high = torch.clamp(high_inputs - inputs_cpu, -1.0, 1.0)
 
-            for mask_inputs, eps_logits, eps in [
-                (mask_low, low_logits, "low"),
-                (mask_high, high_logits, "high"),
-            ]:
-                mode_name = f"{prefix}mask"
-                modes[mode_name][f"dataset_{eps}"].append(
-                    mask_inputs, eps_logits.softmax(dim=1)
-                )
-                mask_logits = model(mask_inputs.to(device)).detach().cpu()
-                s = compute_stats(orig_logits, mask_logits, labels_cpu)
-                stats[mode_name][f"kl_{eps}"].append(s["kl"])
-                stats[mode_name][f"tvd_{eps}"].append(s["tvd"])
-                stats[mode_name][f"misclass_{eps}"].append(s["misclass"])
-                stats[mode_name][f"conf_drop_{eps}"].append(s["conf_drop"])
+            mode_name = f"{prefix}mask"
+            modes[mode_name]["dataset_high"].append(
+                mask_high, high_logits.softmax(dim=1)
+            )
+            mask_logits = model(mask_high.to(device)).detach().cpu()
+            s = compute_stats(orig_logits, mask_logits, labels_cpu)
+            stats[mode_name]["kl_high"].append(s["kl"])
+            stats[mode_name]["tvd_high"].append(s["tvd"])
+            stats[mode_name]["misclass_high"].append(s["misclass"])
+            stats[mode_name]["conf_drop_high"].append(s["conf_drop"])
 
             # MASK+RANDOM mode
-            rand_indices = torch.randint(0, full_inputs.size(0), (inputs.size(0),))
-            random_images = full_inputs[rand_indices]
-
-            mask_plus_random_low = torch.clamp(mask_low + random_images, 0.0, 1.0)
             mask_plus_random_high = torch.clamp(mask_high + random_images, 0.0, 1.0)
 
-            for mpr_inputs, eps_logits, eps in [
-                (mask_plus_random_low, low_logits, "low"),
-                (mask_plus_random_high, high_logits, "high"),
-            ]:
-                mode_name = f"{prefix}mask_plus_random"
-                modes[mode_name][f"dataset_{eps}"].append(
-                    mpr_inputs, eps_logits.softmax(dim=1)
-                )
-                mpr_logits = model(mpr_inputs.to(device)).detach().cpu()
-                s = compute_stats(orig_logits, mpr_logits, labels_cpu)
-                stats[mode_name][f"kl_{eps}"].append(s["kl"])
-                stats[mode_name][f"tvd_{eps}"].append(s["tvd"])
-                stats[mode_name][f"misclass_{eps}"].append(s["misclass"])
-                stats[mode_name][f"conf_drop_{eps}"].append(s["conf_drop"])
+            mode_name = f"{prefix}mask_plus_random"
+            modes[mode_name]["dataset_high"].append(
+                mask_plus_random_high, high_logits.softmax(dim=1)
+            )
+            mpr_logits = model(mask_plus_random_high.to(device)).detach().cpu()
+            s = compute_stats(orig_logits, mpr_logits, random_labels)
+            stats[mode_name]["kl_high"].append(s["kl"])
+            stats[mode_name]["tvd_high"].append(s["tvd"])
+            stats[mode_name]["misclass_high"].append(s["misclass"])
+            stats[mode_name]["conf_drop_high"].append(s["conf_drop"])
 
-        # Clean up
-        del inputs
+            # Clean up high epsilon tensors
+            del high_logits, high_inputs, mask_high, mask_plus_random_high
+            torch.cuda.empty_cache()
+
+        # Update random pool occasionally
+        pool_index += 1
+        if pool_index % 10 == 0:  # Every 10 batches, update the random pool
+            random_pool = []
+            random_labels_pool = []
+
+            # Get new random indices for the pool
+            start_idx = (pool_index // 10) * pool_size % len(combined_dataset)
+            for i in range(
+                start_idx, min(start_idx + pool_size, len(combined_dataset))
+            ):
+                x, label = combined_dataset[i % len(combined_dataset)]
+                random_pool.append(x.unsqueeze(0))
+                random_labels_pool.append(label)
+
+            random_pool = torch.cat(random_pool, dim=0)
+            random_labels_pool = torch.tensor(random_labels_pool)
+
+        # Clean up batch tensors
+        del (
+            inputs,
+            inputs_cpu,
+            labels,
+            labels_cpu,
+            orig_logits,
+            random_images,
+            random_labels,
+        )
         torch.cuda.empty_cache()
 
     # Save datasets
