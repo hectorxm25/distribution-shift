@@ -11,9 +11,17 @@ from collections import defaultdict
 import itertools 
 from torch.utils.data import TensorDataset, DataLoader
 
+# --- Specify Target GPU ID ---
+TARGET_GPU_ID = 1
+_DEVICE = torch.device(f"cuda:{TARGET_GPU_ID}" if torch.cuda.is_available() and TARGET_GPU_ID < torch.cuda.device_count() else "cpu")
+print(f"Using device: {_DEVICE}")
+if _DEVICE.type == 'cuda':
+    torch.cuda.set_device(_DEVICE) # Set default CUDA device
+# ---------------------------
+
 # GLOBAL ATTACK CONFIGS
 LARGE_EPS_ATTACK_PARAMS = {
-        'constraint': 'inf',      # Use L2 PGD attack
+        'constraint': 'inf',      # Use Linf PGD attack
         'eps': 0.031*25,            # large epsilon
         'step_size': 0.1,      # large step size
         'iterations': 10,      # standard iterations
@@ -21,7 +29,7 @@ LARGE_EPS_ATTACK_PARAMS = {
     }
 # standard PGD attack
 SMALL_EPS_ATTACK_PARAMS = {
-        'constraint': 'inf',      # Use L2 PGD attack
+        'constraint': 'inf',      # Use Linf PGD attack
         'eps': 0.031,            # small epsilon
         'step_size': 0.01,      # small step size
         'iterations': 10,      # standard iterations
@@ -31,7 +39,7 @@ SMALL_EPS_ATTACK_PARAMS = {
 # standard PGD L-2 attack
 L2_SMALL_EPS_ATTACK_PARAMS = {
         'constraint': '2',      # Use L2 PGD attack
-        'eps': 1.5,            # small epsilon
+        'eps': 0.15,            # small epsilon
         'step_size': 0.01,      # small step size
         'iterations': 10,      # standard iterations
         'random_start': False,  # standard random start
@@ -39,8 +47,8 @@ L2_SMALL_EPS_ATTACK_PARAMS = {
 
 L2_LARGE_EPS_ATTACK_PARAMS = {
         'constraint': '2',      # Use L2 PGD attack
-        'eps': 1.5*25,            # large epsilon
-        'step_size': 0.01,      # NOTE: This is a bit larger than the default step size for large eps attacks that we used for inf attacks
+        'eps': 0.15*25,            # large epsilon
+        'step_size': 0.1,      # NOTE: This is a bit larger than the default step size for large eps attacks that we used for inf attacks
         'iterations': 10,      # standard iterations
         'random_start': False,  # standard random start
     }
@@ -157,7 +165,7 @@ def get_intermediate_layer_representations(model_path, loader, save_path, num_ba
         arch='resnet18',
         dataset=dataset,
         resume_path=model_path,
-    )[0].to("cuda" if torch.cuda.is_available() else "cpu")
+    )[0].to(_DEVICE)
     model.eval()
 
     # print layer names
@@ -194,14 +202,19 @@ def get_intermediate_layer_representations(model_path, loader, save_path, num_ba
         if verbose:
             print(f"Processing batch {i} (effective batch index {i - batch_skip_offset} for this chunk) of {num_batches} for this chunk.")
         # move to GPU
-        images = images.to("cuda" if torch.cuda.is_available() else "cpu")
-        labels = labels.to("cuda" if torch.cuda.is_available() else "cpu")
+        images = images.to(_DEVICE)
+        labels = labels.to(_DEVICE)
         if verbose:
             print(f"Images shape: {images.shape}")
             print(f"Labels shape: {labels.shape}")
         # create the small and large epsilon adversarial images to pass in
-        _, small_eps_images = model(images, labels, make_adv=True, **L2_SMALL_EPS_ATTACK_PARAMS) # TODO: CHANGED THIS FROM LINF ATTACK TO L2 ATTACK, CHANGE BACK IF NEEDED
-        _, large_eps_images = model(images, labels, make_adv=True, **L2_LARGE_EPS_ATTACK_PARAMS) # TODO: CHANGED THIS FROM LINF ATTACK TO L2 ATTACK, CHANGE BACK IF NEEDED
+        _, small_eps_images = model(images, labels, make_adv=True, **L2_SMALL_EPS_ATTACK_PARAMS)
+        _, large_eps_images = model(images, labels, make_adv=True, **L2_LARGE_EPS_ATTACK_PARAMS)
+        
+        # Ensure adversarial images are on the correct device
+        small_eps_images = small_eps_images.to(_DEVICE)
+        large_eps_images = large_eps_images.to(_DEVICE)
+
         if verbose:
             print(f"Small epsilon adversarial images shape: {small_eps_images.shape}")
             print(f"Large epsilon adversarial images shape: {large_eps_images.shape}")
@@ -226,6 +239,9 @@ def get_intermediate_layer_representations(model_path, loader, save_path, num_ba
                 for part in layer_path.split('.'):
                     module_proxy = getattr(module_proxy, part)
                 small_eps_save_proxy[layer_path] = module_proxy.output.save()
+        
+        # clear cache
+        torch.cuda.empty_cache()
 
         # get the intermediate layer representations for large epsilon adversarial images
         with nnsight_model.trace(large_eps_images) as trace:
@@ -485,8 +501,7 @@ def train_probing_model(dataloader, test_loader, save_path, config=DEFAULT_CONFI
     optimizer = torch.optim.Adam(model.parameters(), lr=config["lr"])
     criterion = nn.CrossEntropyLoss()
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model.to(device)
+    model.to(_DEVICE)
 
     train_loss_history = []
     val_loss_history = []
@@ -496,7 +511,7 @@ def train_probing_model(dataloader, test_loader, save_path, config=DEFAULT_CONFI
         running_train_loss = 0.0
         num_train_batches = 0
         for batch_idx, (data, target) in enumerate(dataloader):
-            data, target = data.to(device), target.to(device)
+            data, target = data.to(_DEVICE), target.to(_DEVICE)
 
             # Flatten the batch before model
             original_shape = data.shape
@@ -529,7 +544,7 @@ def train_probing_model(dataloader, test_loader, save_path, config=DEFAULT_CONFI
         train_loss_history.append(avg_epoch_train_loss)
 
         # Evaluate on validation set at the end of the epoch
-        avg_epoch_val_loss, val_accuracy = evaluate_probe(model, test_loader, criterion, device, verbose=False) # Use the helper
+        avg_epoch_val_loss, val_accuracy = evaluate_probe(model, test_loader, criterion, _DEVICE, verbose=False)
         val_loss_history.append(avg_epoch_val_loss)
 
         if verbose:
@@ -687,7 +702,7 @@ def test_probing_model(dataloader, model_path, verbose=False):
     Returns:
         float: The accuracy of the model on the test set.
     """
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    # device = torch.device("cuda" if torch.cuda.is_available() else "cpu") # Remove old device logic
 
     # Determine input features from the dataset
     try:
@@ -703,7 +718,7 @@ def test_probing_model(dataloader, model_path, verbose=False):
         print(f"Loading classifier from {model_path} \n with num_features: {num_features}")
     model = ProbingModel(num_features=num_features)
     try:
-        model.load_state_dict(torch.load(model_path, map_location=device))
+        model.load_state_dict(torch.load(model_path, map_location=_DEVICE)) # Use _DEVICE for map_location
     except FileNotFoundError:
         print(f"Error: Model file not found at {model_path}")
         return 0.0
@@ -711,7 +726,7 @@ def test_probing_model(dataloader, model_path, verbose=False):
         print(f"Error loading model state_dict from {model_path}: {e}")
         return 0.0
 
-    model.to(device)
+    model.to(_DEVICE) # Use _DEVICE
     model.eval()  # Set model to evaluation mode
 
     correct = 0
@@ -720,7 +735,7 @@ def test_probing_model(dataloader, model_path, verbose=False):
         loss_fn = torch.nn.CrossEntropyLoss()
         total_loss = 0.0
         for data, target in dataloader:
-            data, target = data.to(device), target.to(device)
+            data, target = data.to(_DEVICE), target.to(_DEVICE) # Use _DEVICE
 
             # --- FIX 2: Flatten the batch before model ---
             # Reshape data from [BatchSize, C, H, W] to [BatchSize, Features]
@@ -866,58 +881,58 @@ if __name__ == "__main__":
     PROBES_SAVE_DIR = os.path.join(RUN_SPECIFIC_DIR, "probes") # Models and loaders subdir will be here
     RESULTS_SAVE_DIR = os.path.join(RUN_SPECIFIC_DIR, "test_results")
 
-    os.makedirs(CHUNKED_REPS_SAVE_DIR, exist_ok=True)
-    os.makedirs(PROBES_SAVE_DIR, exist_ok=True) 
-    os.makedirs(RESULTS_SAVE_DIR, exist_ok=True)
+    # os.makedirs(CHUNKED_REPS_SAVE_DIR, exist_ok=True)
+    # os.makedirs(PROBES_SAVE_DIR, exist_ok=True) 
+    # os.makedirs(RESULTS_SAVE_DIR, exist_ok=True)
 
-    _, train_loader, _ = load_dataset(data_path=DATASET_PATH)
+    # _, train_loader, _ = load_dataset(data_path=DATASET_PATH)
 
-    # --- 1. Generate Representations in Chunks ---
-    chunk_file_paths = []
-    num_loops = (DESIRED_TOTAL_BATCHES + CHUNK_SIZE - 1) // CHUNK_SIZE # Ceiling division
+    # # --- 1. Generate Representations in Chunks ---
+    # chunk_file_paths = []
+    # num_loops = (DESIRED_TOTAL_BATCHES + CHUNK_SIZE - 1) // CHUNK_SIZE # Ceiling division
 
-    print(f"Starting representation generation for {DESIRED_TOTAL_BATCHES} batches in chunks of {CHUNK_SIZE}...")
-    for i in range(num_loops):
-        current_offset = i * CHUNK_SIZE
-        # Determine the number of batches for this specific chunk
-        batches_in_this_chunk = min(CHUNK_SIZE, DESIRED_TOTAL_BATCHES - current_offset)
+    # print(f"Starting representation generation for {DESIRED_TOTAL_BATCHES} batches in chunks of {CHUNK_SIZE}...")
+    # for i in range(num_loops):
+    #     current_offset = i * CHUNK_SIZE
+    #     # Determine the number of batches for this specific chunk
+    #     batches_in_this_chunk = min(CHUNK_SIZE, DESIRED_TOTAL_BATCHES - current_offset)
             
-        chunk_save_path = os.path.join(CHUNKED_REPS_SAVE_DIR, f"representations_chunk_{i}_offset_{current_offset}_nbatches_{batches_in_this_chunk}.pt")
-        print(f"--- Processing Chunk {i+1}/{num_loops} (Offset: {current_offset}, Batches: {batches_in_this_chunk}) ---")
-        print(f"Saving chunk to: {chunk_save_path}")
+    #     chunk_save_path = os.path.join(CHUNKED_REPS_SAVE_DIR, f"representations_chunk_{i}_offset_{current_offset}_nbatches_{batches_in_this_chunk}.pt")
+    #     print(f"--- Processing Chunk {i+1}/{num_loops} (Offset: {current_offset}, Batches: {batches_in_this_chunk}) ---")
+    #     print(f"Saving chunk to: {chunk_save_path}")
         
-        # Potentially, only run if file doesn't exist to allow resuming
-        if not os.path.exists(chunk_save_path):
-            get_intermediate_layer_representations(
-                MODEL_PATH,
-                train_loader,
-                save_path=chunk_save_path,
-                num_batches=batches_in_this_chunk,
-                batch_skip_offset=current_offset,
-                verbose=True
-            )
-        else:
-            print(f"Chunk file {chunk_save_path} already exists. Skipping generation for this chunk.")
-        chunk_file_paths.append(chunk_save_path)
+    #     # Potentially, only run if file doesn't exist to allow resuming
+    #     if not os.path.exists(chunk_save_path):
+    #         get_intermediate_layer_representations(
+    #             MODEL_PATH,
+    #             train_loader,
+    #             save_path=chunk_save_path,
+    #             num_batches=batches_in_this_chunk,
+    #             batch_skip_offset=current_offset,
+    #             verbose=True
+    #         )
+    #     else:
+    #         print(f"Chunk file {chunk_save_path} already exists. Skipping generation for this chunk.")
+    #     chunk_file_paths.append(chunk_save_path)
     
-    # Ensure all expected chunk files are present before consolidation
-    actual_chunk_files_present = [p for p in chunk_file_paths if os.path.exists(p)]
-    if len(actual_chunk_files_present) != num_loops:
-        print(f"Warning: Expected {num_loops} chunk files, but only found {len(actual_chunk_files_present)}. Proceeding with available files.")
+    # # Ensure all expected chunk files are present before consolidation
+    # actual_chunk_files_present = [p for p in chunk_file_paths if os.path.exists(p)]
+    # if len(actual_chunk_files_present) != num_loops:
+    #     print(f"Warning: Expected {num_loops} chunk files, but only found {len(actual_chunk_files_present)}. Proceeding with available files.")
     
-    print("Finished generating all representation chunks.")
+    # print("Finished generating all representation chunks.")
 
-    # --- 2. Consolidate Chunked Representations ---
-    if not os.path.exists(CONSOLIDATED_REPS_SAVE_PATH) or len(actual_chunk_files_present) > 0 : # Only consolidate if target doesn't exist or new chunks were processed
-        print(f"Consolidating {len(actual_chunk_files_present)} representation chunks into {CONSOLIDATED_REPS_SAVE_PATH}...")
-        consolidate_chunked_representations(
-            actual_chunk_files_present, # Use only files that were actually created/found
-            CONSOLIDATED_REPS_SAVE_PATH,
-            verbose=True
-        )
-        print("Finished consolidating representations.")
-    else:
-        print(f"Consolidated file {CONSOLIDATED_REPS_SAVE_PATH} already exists and no new chunks processed. Skipping consolidation.")
+    # # --- 2. Consolidate Chunked Representations ---
+    # if not os.path.exists(CONSOLIDATED_REPS_SAVE_PATH) or len(actual_chunk_files_present) > 0 : # Only consolidate if target doesn't exist or new chunks were processed
+    #     print(f"Consolidating {len(actual_chunk_files_present)} representation chunks into {CONSOLIDATED_REPS_SAVE_PATH}...")
+    #     consolidate_chunked_representations(
+    #         actual_chunk_files_present, # Use only files that were actually created/found
+    #         CONSOLIDATED_REPS_SAVE_PATH,
+    #         verbose=True
+    #     )
+    #     print("Finished consolidating representations.")
+    # else:
+    #     print(f"Consolidated file {CONSOLIDATED_REPS_SAVE_PATH} already exists and no new chunks processed. Skipping consolidation.")
 
 
     # --- 3. Train All Probes using Consolidated Representations ---
