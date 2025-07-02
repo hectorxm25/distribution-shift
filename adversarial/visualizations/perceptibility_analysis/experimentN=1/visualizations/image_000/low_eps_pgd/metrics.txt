@@ -1,0 +1,13 @@
+Attack: Low Epsilon PGD (eps=0.031, step=0.01)
+Image ID: 0
+Original Label: 9
+
+Metrics (Original vs Adversarial):
+SNR: 24.3100
+PSNR: 33.4728 dB
+SSIM: 0.9763
+
+Metrics (Random Image vs Masked Random Image):
+SNR: 20.4092
+PSNR: 33.4735 dB
+SSIM: 0.9743

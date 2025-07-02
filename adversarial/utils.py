@@ -107,4 +107,5 @@ class ModelWrapper(torch.nn.Module):
     
 
 if __name__ == "__main__":
-    load_pt_tensor("/home/gridsan/hmartinez/distribution-shift/adversarial/visualizations/mask_superimposed/experiment_5_test_set/superimposed/superimposed_large_4.pt", verbose=True)
+    # load_pt_tensor("/home/gridsan/hmartinez/distribution-shift/adversarial/visualizations/mask_superimposed/experiment_5_test_set/superimposed/superimposed_large_4.pt", verbose=True)
+    create_and_save_dataset("/afs/csail.mit.edu/u/h/hectorxm/distribution-shift/datasets")

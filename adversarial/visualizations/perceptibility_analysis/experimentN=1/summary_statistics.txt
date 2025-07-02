@@ -1,0 +1,77 @@
+PERCEPTIBILITY ANALYSIS SUMMARY
+==================================================
+
+Number of images processed: 1
+Number of attack configurations: 6
+
+
+ATTACK: Low Epsilon PGD (eps=0.031, step=0.01)
+----------------------------------------
+Original vs Adversarial Image:
+  SNR: mean=24.3100, std=0.0000, min=24.3100, max=24.3100
+  PSNR: mean=33.4728, std=0.0000, min=33.4728, max=33.4728
+  SSIM: mean=0.9763, std=0.0000, min=0.9763, max=0.9763
+
+Random Image vs Masked Random Image:
+  SNR: mean=20.4092, std=0.0000, min=20.4092, max=20.4092
+  PSNR: mean=33.4735, std=0.0000, min=33.4735, max=33.4735
+  SSIM: mean=0.9743, std=0.0000, min=0.9743, max=0.9743
+
+ATTACK: Medium Epsilon, High Step PGD (eps=4*0.031, step=0.1)
+----------------------------------------
+Original vs Adversarial Image:
+  SNR: mean=5.4295, std=0.0000, min=5.4295, max=5.4295
+  PSNR: mean=20.4523, std=0.0000, min=20.4523, max=20.4523
+  SSIM: mean=0.7446, std=0.0000, min=0.7446, max=0.7446
+
+Random Image vs Masked Random Image:
+  SNR: mean=3.9286, std=0.0000, min=3.9286, max=3.9286
+  PSNR: mean=20.5808, std=0.0000, min=20.5808, max=20.5808
+  SSIM: mean=0.7522, std=0.0000, min=0.7522, max=0.7522
+
+ATTACK: Medium Epsilon, Low Step PGD (eps=4*0.031, step=0.01)
+----------------------------------------
+Original vs Adversarial Image:
+  SNR: mean=15.9122, std=0.0000, min=15.9122, max=15.9122
+  PSNR: mean=29.7919, std=0.0000, min=29.7919, max=29.7919
+  SSIM: mean=0.9497, std=0.0000, min=0.9497, max=0.9497
+
+Random Image vs Masked Random Image:
+  SNR: mean=18.4015, std=0.0000, min=18.4015, max=18.4015
+  PSNR: mean=29.7919, std=0.0000, min=29.7919, max=29.7919
+  SSIM: mean=0.9309, std=0.0000, min=0.9309, max=0.9309
+
+ATTACK: High Epsilon, High Step PGD (eps=25*0.031, step=0.1)
+----------------------------------------
+Original vs Adversarial Image:
+  SNR: mean=2.0737, std=0.0000, min=2.0737, max=2.0737
+  PSNR: mean=12.0914, std=0.0000, min=12.0914, max=12.0914
+  SSIM: mean=0.3682, std=0.0000, min=0.3682, max=0.3682
+
+Random Image vs Masked Random Image:
+  SNR: mean=2.3599, std=0.0000, min=2.3599, max=2.3599
+  PSNR: mean=13.0246, std=0.0000, min=13.0246, max=13.0246
+  SSIM: mean=0.4694, std=0.0000, min=0.4694, max=0.4694
+
+ATTACK: High Epsilon, Low Step PGD (eps=25*0.031, step=0.01)
+----------------------------------------
+Original vs Adversarial Image:
+  SNR: mean=15.9122, std=0.0000, min=15.9122, max=15.9122
+  PSNR: mean=29.7919, std=0.0000, min=29.7919, max=29.7919
+  SSIM: mean=0.9497, std=0.0000, min=0.9497, max=0.9497
+
+Random Image vs Masked Random Image:
+  SNR: mean=18.5784, std=0.0000, min=18.5784, max=18.5784
+  PSNR: mean=29.7919, std=0.0000, min=29.7919, max=29.7919
+  SSIM: mean=0.9026, std=0.0000, min=0.9026, max=0.9026
+
+ATTACK: Untargeted UAP
+----------------------------------------
+Original vs Adversarial Image:
+  SNR: mean=19.9617, std=0.0000, min=19.9617, max=19.9617
+  PSNR: mean=31.7612, std=0.0000, min=31.7612, max=31.7612
+  SSIM: mean=0.9663, std=0.0000, min=0.9663, max=0.9663
+
+==================================================
+Higher SNR, PSNR, and SSIM values indicate less perceptible changes.
+SSIM values range from -1 to 1, with 1 indicating perfect similarity.

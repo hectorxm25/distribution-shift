@@ -1,0 +1,13 @@
+Attack: Medium Epsilon, High Step PGD (eps=4*0.031, step=0.1)
+Image ID: 0
+Original Label: 9
+
+Metrics (Original vs Adversarial):
+SNR: 5.4295
+PSNR: 20.4523 dB
+SSIM: 0.7446
+
+Metrics (Random Image vs Masked Random Image):
+SNR: 3.9286
+PSNR: 20.5808 dB
+SSIM: 0.7522

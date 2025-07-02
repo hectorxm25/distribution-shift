@@ -1087,16 +1087,291 @@ def validate_label_flips(model_path, save_path, loader, low_epsilon_config=NORMA
     print(f"Saved label flip plot to {save_path}")
     plt.close(fig)
 
+
+def find_lowest_high_eps(model_path, loader, eps_lower_bound, eps_upper_bound, eps_step, save_path, plot=True, verbose=False, batch_size=128):
+    """
+    This function will return a map of epsilon values to the label flip rate. It will save this map to a .pt file in save_path.
+    The label flip rate is defined as: 
+        For every one of the 10 classes in the dataset, you take 5 random images,
+        and you calculate their associated epsilon mask. Now you have 5 epsilon masks
+        per class. You then randomly apply these 5 epsilon masks uniformly to the rest
+        of the images in the class in the dataset. The label flip rate is the percentage
+        of the images that, when the mask is applied, the label flips.
+    Additionally, if the plot=True, it will plot the label flip rate against the epsilon values as a 
+    bar graph and save it to save_path.
+    The experiment will run from eps_lower_bound to eps_upper_bound in steps of eps_step.
+    
+    Args:
+        batch_size: The batch size to use for model inference (default: 128). This should match
+                   the batch size the model was designed for to ensure optimal performance.
+    """
+
+    # TODO: Check the two TODO's in the code below and make sure that batching is done correctly.
+    
+    # ASSUMPTIONS:
+    # 1. CIFAR-10 dataset with 10 classes (0-9)
+    # 2. The loader contains sufficient images from all classes (at least 6 per class for meaningful results)
+    # 3. Label flip is defined as: original_prediction != mask_applied_prediction
+    # 4. Masks are applied by addition: final_image = original_image + mask
+    # 5. We use the same attack configuration as ATTACK_PARAMS but vary epsilon
+    # 6. Model path points to a valid trained model checkpoint
+    # 7. Save path is a valid directory where we can write files
+    
+    if verbose:
+        print(f"Starting epsilon sweep from {eps_lower_bound} to {eps_upper_bound} with step {eps_step}")
+        print(f"Model path: {model_path}")
+        print(f"Save path: {save_path}")
+    
+    # Load the model and dataset - using existing patterns from the codebase
+    dataset = CIFAR('/afs/csail.mit.edu/u/h/hectorxm/distribution-shift/datasets')
+    model, _ = model_utils.make_and_restore_model(arch='resnet18', dataset=dataset, resume_path=model_path)
+    model.eval()
+    model.cuda()
+    
+    # Organize images by class - we need to separate the loader data by CIFAR-10 classes
+    if verbose:
+        print("Organizing images by class...")
+    
+    images_by_class = {i: [] for i in range(10)}  # CIFAR-10 has classes 0-9
+    labels_by_class = {i: [] for i in range(10)}
+    
+    # Collect all images and organize them by their true labels
+    for batch_images, batch_labels in loader:
+        for img, label in zip(batch_images, batch_labels):
+            class_id = label.item()
+            images_by_class[class_id].append(img)
+            labels_by_class[class_id].append(label)
+    
+    if verbose:
+        for class_id in range(10):
+            print(f"Class {class_id}: {len(images_by_class[class_id])} images")
+    
+    # Check that we have enough images per class for the experiment
+    min_images_per_class = min(len(images_by_class[class_id]) for class_id in range(10))
+    if min_images_per_class < 6:  # Need at least 5 for mask generation + 1 for testing
+        print(f"Warning: Some classes have fewer than 6 images. Minimum: {min_images_per_class}")
+        print("This may affect the reliability of results for those classes.")
+    
+    # Dictionary to store epsilon -> label_flip_rate mapping
+    epsilon_to_flip_rate = {}
+    
+    # Generate epsilon values to test
+    epsilon_values = []
+    current_eps = eps_lower_bound
+    while current_eps <= eps_upper_bound:
+        epsilon_values.append(current_eps)
+        current_eps += eps_step
+    
+    if verbose:
+        print(f"Testing {len(epsilon_values)} epsilon values: {epsilon_values}")
+    
+    # Main experiment loop - iterate through each epsilon value
+    for eps in epsilon_values:
+        if verbose:
+            print(f"\n--- Testing epsilon = {eps} ---")
+        
+        # Create attack configuration for this epsilon value
+        # Using the same base configuration as ATTACK_PARAMS but with current epsilon
+        current_attack_config = {
+            'constraint': 'inf',      # Keep same constraint type
+            'eps': eps,               # This is the variable we're testing
+            'step_size': 0.1,         # Keep consistent step size (could be scaled with eps if needed)
+            'iterations': 10,         # Keep same number of iterations
+            'random_start': False,    # Keep same random start setting
+        }
+        
+        class_flip_rates = []  # Store flip rates for each class to average later
+        
+        # Process each of the 10 CIFAR-10 classes
+        for class_id in range(10):
+            if verbose:
+                print(f"  Processing class {class_id}...")
+            
+            class_images = images_by_class[class_id]
+            class_labels = labels_by_class[class_id]
+            
+            # Skip if insufficient images for this class
+            if len(class_images) < 6:
+                if verbose:
+                    print(f"    Skipping class {class_id} - insufficient images ({len(class_images)})")
+                continue
+            
+            # Step 1: Select 5 random images from this class to generate masks
+            mask_generation_indices = random.sample(range(len(class_images)), 5)
+            mask_generation_images = [class_images[i] for i in mask_generation_indices]
+            mask_generation_labels = [class_labels[i] for i in mask_generation_indices]
+            
+            # Convert to tensors for batch processing
+            mask_gen_batch_images = torch.stack(mask_generation_images)
+            mask_gen_batch_labels = torch.stack(mask_generation_labels)
+            
+            # Step 2: Generate masks for these 5 images using current epsilon
+            # TODO: CHECK THAT THIS METHOD CALL IS CORRECT 
+            try:
+                _, _, generated_masks, _, _, _ = mask_gen.create_masks_batch(
+                    current_attack_config, model_path, mask_gen_batch_images, mask_gen_batch_labels
+                )
+                generated_masks = generated_masks.cuda()  # Move masks to GPU
+            except Exception as e:
+                if verbose:
+                    print(f"    Error generating masks for class {class_id}: {e}")
+                continue
+            
+            # Step 3: Get remaining images in this class (not used for mask generation)
+            remaining_indices = [i for i in range(len(class_images)) if i not in mask_generation_indices]
+            if len(remaining_indices) == 0:
+                if verbose:
+                    print(f"    No remaining images for class {class_id} after mask generation")
+                continue
+            
+            remaining_images = [class_images[i] for i in remaining_indices]
+            remaining_labels = [class_labels[i] for i in remaining_indices]
+            
+            # Step 4: Apply each of the 5 masks to all remaining images and count label flips
+            total_applications = 0
+            total_flips = 0
+            
+            # Convert remaining images to tensors and move to GPU for batch processing
+            remaining_images_tensor = torch.stack(remaining_images).cuda()
+            
+            # Get original predictions for all remaining images in batches
+            original_predictions = []
+                         # Use the provided batch size parameter
+            
+            with torch.no_grad():
+                for i in range(0, len(remaining_images_tensor), batch_size):
+                    batch_end = min(i + batch_size, len(remaining_images_tensor))
+                    batch_images = remaining_images_tensor[i:batch_end]
+                    batch_output, _ = model(batch_images)
+                    batch_predictions = batch_output.argmax(dim=1)
+                    original_predictions.extend(batch_predictions.cpu().tolist())
+            
+            if verbose:
+                print(f"    Applying {len(generated_masks)} masks to {len(remaining_images)} remaining images...")
+            
+            for mask_idx, mask in enumerate(generated_masks):
+                # Apply this mask to all remaining images in the class using batch processing
+                masked_predictions = []
+                
+                with torch.no_grad():
+                    for i in range(0, len(remaining_images_tensor), batch_size):
+                        batch_end = min(i + batch_size, len(remaining_images_tensor))
+                        batch_images = remaining_images_tensor[i:batch_end]
+                        
+                        # Apply mask to entire batch
+                        # Expand mask to match batch size: mask shape is (C, H, W), we need (batch_size, C, H, W)
+                        batch_mask = mask.unsqueeze(0).expand(batch_images.size(0), -1, -1, -1)
+                        masked_batch = torch.clamp(batch_images + batch_mask, 0, 1)
+                        
+                        # Get predictions for masked batch
+                        batch_output, _ = model(masked_batch)
+                        batch_predictions = batch_output.argmax(dim=1)
+                        masked_predictions.extend(batch_predictions.cpu().tolist())
+                
+                # Count label flips for this mask
+                for orig_pred, masked_pred in zip(original_predictions, masked_predictions):
+                    total_applications += 1
+                    if orig_pred != masked_pred:
+                        total_flips += 1
+            
+            # Calculate flip rate for this class
+            if total_applications > 0:
+                class_flip_rate = total_flips / total_applications
+                class_flip_rates.append(class_flip_rate)
+                if verbose:
+                    print(f"    Class {class_id} flip rate: {class_flip_rate:.3f} ({total_flips}/{total_applications})")
+            else:
+                if verbose:
+                    print(f"    Class {class_id}: No valid applications")
+        
+        # Calculate average flip rate across all classes for this epsilon
+        if len(class_flip_rates) > 0:
+            avg_flip_rate = sum(class_flip_rates) / len(class_flip_rates)
+            epsilon_to_flip_rate[eps] = avg_flip_rate
+            if verbose:
+                print(f"  Average flip rate for eps={eps}: {avg_flip_rate:.3f}")
+        else:
+            if verbose:
+                print(f"  No valid results for eps={eps}")
+            epsilon_to_flip_rate[eps] = 0.0
+    
+    # Save the results to a .pt file
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+    results_save_path = save_path.replace('.png', '_results.pt') if save_path.endswith('.png') else save_path + '_results.pt'
+    torch.save(epsilon_to_flip_rate, results_save_path)
+    
+    if verbose:
+        print(f"\nSaved results to: {results_save_path}")
+        print("Epsilon -> Flip Rate mapping:")
+        for eps, rate in epsilon_to_flip_rate.items():
+            print(f"  {eps:.3f}: {rate:.3f}")
+    
+    # Generate plot if requested
+    if plot and len(epsilon_to_flip_rate) > 0:
+        if verbose:
+            print("Generating plot...")
+        
+        eps_values = list(epsilon_to_flip_rate.keys())
+        flip_rates = list(epsilon_to_flip_rate.values())
+        
+        plt.figure(figsize=(12, 8))
+        plt.bar(range(len(eps_values)), flip_rates, color='steelblue', alpha=0.7)
+        plt.xlabel('Epsilon Value')
+        plt.ylabel('Label Flip Rate')
+        plt.title('Label Flip Rate vs Epsilon Value\n(5 masks per class applied to remaining class images)')
+        plt.xticks(range(len(eps_values)), [f'{eps:.3f}' for eps in eps_values], rotation=45)
+        plt.grid(True, alpha=0.3)
+        
+        # Add value labels on bars
+        for i, rate in enumerate(flip_rates):
+            plt.text(i, rate + 0.01, f'{rate:.3f}', ha='center', va='bottom')
+        
+        plt.tight_layout()
+        plot_save_path = save_path if save_path.endswith('.png') else save_path + '.png'
+        plt.savefig(plot_save_path, dpi=300, bbox_inches='tight')
+        plt.close()
+        
+        if verbose:
+            print(f"Plot saved to: {plot_save_path}")
+    
+    return epsilon_to_flip_rate
+
+
+
+
 if __name__ == "__main__":
-    MODEL_PATH = "/u/hectorxm/distribution-shift/models/149_checkpoint.pt"
-    SAVE_PATH = "/u/hectorxm/distribution-shift/adversarial/visualizations/label_flip_rate_validation/train_set_results.png"
-    # EXPERIMENT_FOLDER = "/home/gridsan/hmartinez/distribution-shift/adversarial/visualizations/mask_superimposed/experiment_7_randomNoiseMasks_test_set"
-    # # Get the training loader
-    _, train_loader, test_loader = train.load_dataset("/u/hectorxm/distribution-shift/dataset")
-    validate_label_flips(MODEL_PATH, SAVE_PATH, train_loader, low_epsilon_config=NORMAL_ATTACK_PARAMS, high_epsilon_config=ATTACK_PARAMS)
+    MODEL_PATH = "/afs/csail.mit.edu/u/h/hectorxm/distribution-shift/models/natural/149_checkpoint.pt"
+    # SAVE_PATH = "/afs/csail.mit.edu/u/h/hectorxm/distribution-shift/adversarial/visualizations/label_flip_rate_validation/train_set_results.png"
+    
+    # Create epsilon experiments directory if it doesn't exist
+    EPSILON_EXPERIMENTS_DIR = "/afs/csail.mit.edu/u/h/hectorxm/distribution-shift/adversarial/visualizations/epsilon_experiments/high_step_size"
+    os.makedirs(EPSILON_EXPERIMENTS_DIR, exist_ok=True)
+    
+    # Get the training and test loaders
+    _, train_loader, test_loader = train.load_dataset("/afs/csail.mit.edu/u/h/hectorxm/distribution-shift/datasets")
+    
+    # Run epsilon sweep experiment
+    print("Starting epsilon sweep experiment...")
+    epsilon_results = find_lowest_high_eps(
+        model_path=MODEL_PATH,
+        loader=test_loader,  # Using test set for cleaner results
+        eps_lower_bound=0.031,  # Start from small epsilon
+        eps_upper_bound=0.031*50,   # Go up to large epsilon  
+        eps_step=0.031*2,         
+        save_path=os.path.join(EPSILON_EXPERIMENTS_DIR, "epsilon_sweep_results"),
+        plot=True,
+        verbose=True,
+        batch_size=128
+    )
+    
+    print(f"Epsilon sweep completed. Results saved to {EPSILON_EXPERIMENTS_DIR}")
+    print(f"Found {len(epsilon_results)} epsilon values tested.")
+    
+    # Optionally run other experiments (commented out for now)
+    # validate_label_flips(MODEL_PATH, SAVE_PATH, train_loader, low_epsilon_config=NORMAL_ATTACK_PARAMS, high_epsilon_config=ATTACK_PARAMS)
     # run_mask_visualization_experiment(MODEL_PATH, SAVE_PATH, test_loader, N=100, random_images=True)
-    # # run_mask_training_experiment(MODEL_PATH, SAVE_PATH)
-    # # run_random_noise_mask_confidence_experiment(MODEL_PATH)
+    # run_mask_training_experiment(MODEL_PATH, SAVE_PATH)
+    # run_random_noise_mask_confidence_experiment(MODEL_PATH)
     # analyze_mask_superimposed_experiment(EXPERIMENT_FOLDER)
     # run_mask_superimposed_random_experiment(MODEL_PATH, SAVE_PATH, test_loader, attack_config=ATTACK_PARAMS, privacy_allocation=10, verbose=True, use_gaussian=True, mu=0, sigma=0.1)
     # check_adversarial_labels(MODEL_PATH, SAVE_PATH, test_loader, small_eps_config=NORMAL_ATTACK_PARAMS, large_eps_config=ATTACK_PARAMS, verbose=True)
