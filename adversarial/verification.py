@@ -45,14 +45,14 @@ LOW_EPS = {
 
 L2_LOW_EPS = {
     "constraint": "2",  # Use L2 PGD attack
-    "eps": 0.031,  # small epsilon
+    "eps": 0.15,  # small epsilon
     "step_size": 0.01,  # small step size
     "iterations": 10,  # standard iterations
     "random_start": False,  # standard random start
 }
 L2_HIGH_EPS = {
     "constraint": "2",  # Use L2 PGD attack
-    "eps": 0.031 * 25,  # large epsilon
+    "eps": 0.15 * 25,  # large epsilon
     "step_size": 0.1,  # large step size
     "iterations": 10,  # standard iterations
     "random_start": False,  # standard random start
