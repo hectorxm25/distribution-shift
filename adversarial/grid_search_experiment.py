@@ -131,8 +131,21 @@ def run_adversarial_grid_search_experiment(
     
     grid_results = {}
     
-    # Convert loader to list for easier random sampling
-    loader_list = list(loader)
+    # Create a list of batches by iterating through the loader once
+    # This avoids the 'in_order' attribute issue
+    if verbose:
+        print(f"\nLoading all batches from DataLoader...")
+    
+    loader_list = []
+    try:
+        for batch_idx, (images, labels) in enumerate(loader):
+            loader_list.append((images, labels))
+            if verbose and batch_idx % 100 == 0:
+                print(f"Loaded {batch_idx + 1} batches...")
+    except Exception as e:
+        print(f"Error loading batches from DataLoader: {e}")
+        print("This might be due to DataLoader compatibility issues.")
+        raise e
     
     if verbose:
         print(f"\nStarting grid search experiment...")

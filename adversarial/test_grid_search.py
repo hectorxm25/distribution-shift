@@ -140,6 +140,7 @@ if __name__ == "__main__":
         print("="*60)
         
         # Uncomment the line below to run the full experiment immediately
-        # run_full_experiment()
+        run_full_experiment()
+
     else:
         print("\nTest failed. Please fix the errors before running the full experiment.") 

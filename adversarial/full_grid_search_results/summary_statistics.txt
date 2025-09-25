@@ -1,0 +1,200 @@
+ADVERSARIAL PERTURBATION GRID SEARCH EXPERIMENT SUMMARY
+================================================================================
+
+EXPERIMENT CONFIGURATION:
+Model path: /afs/csail.mit.edu/u/h/hectorxm/distribution-shift/models/natural/149_checkpoint.pt
+Data path: /afs/csail.mit.edu/u/h/hectorxm/distribution-shift/datasets
+Number of random images tested per combination: 100
+Epsilon range: 0.0310 to 0.1550
+Step size range: 0.0100 to 0.1000
+Total parameter combinations: 25
+Attack configuration: {'constraint': 'inf', 'iterations': 10, 'random_start': False}
+
+OVERALL STATISTICS:
+SSIM - Mean: 0.8449, Std: 0.0915, Range: [0.6598, 0.9684]
+Label Flip Rate - Mean: 56.76%, Std: 27.05%, Range: [11.00%, 91.00%]
+Attack Success Rate: 96.0% (24/25)
+
+EXTREME CONFIGURATIONS:
+Highest SSIM: eps_0.0310_step_0.0100 (SSIM: 0.9684)
+Lowest SSIM: eps_0.1550_step_0.1000 (SSIM: 0.6598)
+Highest Flip Rate: eps_0.1550_step_0.1000 (Rate: 91.00%)
+Lowest Flip Rate: eps_0.0310_step_0.0100 (Rate: 11.00%)
+
+DETAILED RESULTS BY CONFIGURATION:
+--------------------------------------------------------------------------------
+
+eps_0.0310_step_0.0100:
+  Epsilon: 0.0310, Step Size: 0.0100
+  Average SSIM: 0.9684 ± 0.0207
+  Label Flip Rate: 11.00% (11/100)
+  Attack Success on Source: Yes
+  Source Image - Original Label: 7, Original Pred: 7, Adv Pred: 3
+
+eps_0.0310_step_0.0325:
+  Epsilon: 0.0310, Step Size: 0.0325
+  Average SSIM: 0.9572 ± 0.0244
+  Label Flip Rate: 23.00% (23/100)
+  Attack Success on Source: Yes
+  Source Image - Original Label: 7, Original Pred: 7, Adv Pred: 3
+
+eps_0.0310_step_0.0550:
+  Epsilon: 0.0310, Step Size: 0.0550
+  Average SSIM: 0.9471 ± 0.0301
+  Label Flip Rate: 20.00% (20/100)
+  Attack Success on Source: Yes
+  Source Image - Original Label: 6, Original Pred: 6, Adv Pred: 3
+
+eps_0.0310_step_0.0775:
+  Epsilon: 0.0310, Step Size: 0.0775
+  Average SSIM: 0.9380 ± 0.0326
+  Label Flip Rate: 35.00% (35/100)
+  Attack Success on Source: Yes
+  Source Image - Original Label: 2, Original Pred: 2, Adv Pred: 3
+
+eps_0.0310_step_0.1000:
+  Epsilon: 0.0310, Step Size: 0.1000
+  Average SSIM: 0.9417 ± 0.0369
+  Label Flip Rate: 22.00% (22/100)
+  Attack Success on Source: Yes
+  Source Image - Original Label: 8, Original Pred: 8, Adv Pred: 3
+
+eps_0.0620_step_0.0100:
+  Epsilon: 0.0620, Step Size: 0.0100
+  Average SSIM: 0.9516 ± 0.0227
+  Label Flip Rate: 18.00% (18/100)
+  Attack Success on Source: Yes
+  Source Image - Original Label: 9, Original Pred: 9, Adv Pred: 7
+
+eps_0.0620_step_0.0325:
+  Epsilon: 0.0620, Step Size: 0.0325
+  Average SSIM: 0.8923 ± 0.0520
+  Label Flip Rate: 54.00% (54/100)
+  Attack Success on Source: Yes
+  Source Image - Original Label: 7, Original Pred: 5, Adv Pred: 6
+
+eps_0.0620_step_0.0550:
+  Epsilon: 0.0620, Step Size: 0.0550
+  Average SSIM: 0.8910 ± 0.0537
+  Label Flip Rate: 49.00% (49/100)
+  Attack Success on Source: Yes
+  Source Image - Original Label: 2, Original Pred: 2, Adv Pred: 3
+
+eps_0.0620_step_0.0775:
+  Epsilon: 0.0620, Step Size: 0.0775
+  Average SSIM: 0.8686 ± 0.0707
+  Label Flip Rate: 63.00% (63/100)
+  Attack Success on Source: Yes
+  Source Image - Original Label: 6, Original Pred: 6, Adv Pred: 3
+
+eps_0.0620_step_0.1000:
+  Epsilon: 0.0620, Step Size: 0.1000
+  Average SSIM: 0.8537 ± 0.0680
+  Label Flip Rate: 49.00% (49/100)
+  Attack Success on Source: No
+  Source Image - Original Label: 2, Original Pred: 2, Adv Pred: 2
+
+eps_0.0930_step_0.0100:
+  Epsilon: 0.0930, Step Size: 0.0100
+  Average SSIM: 0.9391 ± 0.0299
+  Label Flip Rate: 23.00% (23/100)
+  Attack Success on Source: Yes
+  Source Image - Original Label: 4, Original Pred: 4, Adv Pred: 3
+
+eps_0.0930_step_0.0325:
+  Epsilon: 0.0930, Step Size: 0.0325
+  Average SSIM: 0.8369 ± 0.0733
+  Label Flip Rate: 64.00% (64/100)
+  Attack Success on Source: Yes
+  Source Image - Original Label: 9, Original Pred: 9, Adv Pred: 5
+
+eps_0.0930_step_0.0550:
+  Epsilon: 0.0930, Step Size: 0.0550
+  Average SSIM: 0.8132 ± 0.0827
+  Label Flip Rate: 79.00% (79/100)
+  Attack Success on Source: Yes
+  Source Image - Original Label: 8, Original Pred: 8, Adv Pred: 2
+
+eps_0.0930_step_0.0775:
+  Epsilon: 0.0930, Step Size: 0.0775
+  Average SSIM: 0.8041 ± 0.0709
+  Label Flip Rate: 83.00% (83/100)
+  Attack Success on Source: Yes
+  Source Image - Original Label: 0, Original Pred: 0, Adv Pred: 2
+
+eps_0.0930_step_0.1000:
+  Epsilon: 0.0930, Step Size: 0.1000
+  Average SSIM: 0.7844 ± 0.0690
+  Label Flip Rate: 77.00% (77/100)
+  Attack Success on Source: Yes
+  Source Image - Original Label: 0, Original Pred: 0, Adv Pred: 3
+
+eps_0.1240_step_0.0100:
+  Epsilon: 0.1240, Step Size: 0.0100
+  Average SSIM: 0.9267 ± 0.0388
+  Label Flip Rate: 34.00% (34/100)
+  Attack Success on Source: Yes
+  Source Image - Original Label: 5, Original Pred: 5, Adv Pred: 3
+
+eps_0.1240_step_0.0325:
+  Epsilon: 0.1240, Step Size: 0.0325
+  Average SSIM: 0.7719 ± 0.0767
+  Label Flip Rate: 85.00% (85/100)
+  Attack Success on Source: Yes
+  Source Image - Original Label: 0, Original Pred: 0, Adv Pred: 2
+
+eps_0.1240_step_0.0550:
+  Epsilon: 0.1240, Step Size: 0.0550
+  Average SSIM: 0.7722 ± 0.0751
+  Label Flip Rate: 83.00% (83/100)
+  Attack Success on Source: Yes
+  Source Image - Original Label: 2, Original Pred: 2, Adv Pred: 3
+
+eps_0.1240_step_0.0775:
+  Epsilon: 0.1240, Step Size: 0.0775
+  Average SSIM: 0.7515 ± 0.0878
+  Label Flip Rate: 83.00% (83/100)
+  Attack Success on Source: Yes
+  Source Image - Original Label: 2, Original Pred: 2, Adv Pred: 6
+
+eps_0.1240_step_0.1000:
+  Epsilon: 0.1240, Step Size: 0.1000
+  Average SSIM: 0.7303 ± 0.0818
+  Label Flip Rate: 90.00% (90/100)
+  Attack Success on Source: Yes
+  Source Image - Original Label: 8, Original Pred: 8, Adv Pred: 2
+
+eps_0.1550_step_0.0100:
+  Epsilon: 0.1550, Step Size: 0.0100
+  Average SSIM: 0.9308 ± 0.0333
+  Label Flip Rate: 35.00% (35/100)
+  Attack Success on Source: Yes
+  Source Image - Original Label: 5, Original Pred: 5, Adv Pred: 3
+
+eps_0.1550_step_0.0325:
+  Epsilon: 0.1550, Step Size: 0.0325
+  Average SSIM: 0.7526 ± 0.0837
+  Label Flip Rate: 88.00% (88/100)
+  Attack Success on Source: Yes
+  Source Image - Original Label: 5, Original Pred: 5, Adv Pred: 2
+
+eps_0.1550_step_0.0550:
+  Epsilon: 0.1550, Step Size: 0.0550
+  Average SSIM: 0.7378 ± 0.0777
+  Label Flip Rate: 74.00% (74/100)
+  Attack Success on Source: Yes
+  Source Image - Original Label: 0, Original Pred: 0, Adv Pred: 3
+
+eps_0.1550_step_0.0775:
+  Epsilon: 0.1550, Step Size: 0.0775
+  Average SSIM: 0.7011 ± 0.0880
+  Label Flip Rate: 86.00% (86/100)
+  Attack Success on Source: Yes
+  Source Image - Original Label: 3, Original Pred: 3, Adv Pred: 6
+
+eps_0.1550_step_0.1000:
+  Epsilon: 0.1550, Step Size: 0.1000
+  Average SSIM: 0.6598 ± 0.0930
+  Label Flip Rate: 91.00% (91/100)
+  Attack Success on Source: Yes
+  Source Image - Original Label: 6, Original Pred: 6, Adv Pred: 2

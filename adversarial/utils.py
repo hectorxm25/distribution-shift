@@ -37,7 +37,7 @@ def load_dataset(data_path):
     Loads previously saved dataset in a way compatible with robustness library
     """
     # Load the saved dataset and reproducibility info
-    checkpoint = torch.load(f"{data_path}/dataset.pt")
+    checkpoint = torch.load(f"{data_path}/dataset.pt", weights_only=False)
     dataset = checkpoint['dataset']
     
     # Restore all random seeds (just in case)
@@ -46,8 +46,11 @@ def load_dataset(data_path):
     np.random.seed(checkpoint['seed'])
     
     # Create new loaders with same reproducibility settings
-    train_loader = checkpoint['train_loader']
-    test_loader = checkpoint['test_loader']
+    # Fix DataLoader compatibility by recreating them
+    train_loader, test_loader = dataset.make_loaders(
+        batch_size=128, 
+        workers=8,
+    )
     
     print("Successfully loaded data loaders")
     return dataset, train_loader, test_loader
