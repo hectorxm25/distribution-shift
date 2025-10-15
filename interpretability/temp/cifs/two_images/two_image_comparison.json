@@ -1,0 +1,534 @@
+{
+  "baseline": {
+    "predicted_class": 6,
+    "true_class": 6,
+    "top_20_pr": [
+      {
+        "layer": "linear",
+        "channel": 4,
+        "score": 0.6458138227462769
+      },
+      {
+        "layer": "linear",
+        "channel": 1,
+        "score": 0.3440121114253998
+      },
+      {
+        "layer": "linear",
+        "channel": 2,
+        "score": 0.25125834345817566
+      },
+      {
+        "layer": "layer2.0.conv1",
+        "channel": 119,
+        "score": 0.24774806201457977
+      },
+      {
+        "layer": "linear",
+        "channel": 9,
+        "score": 0.23174092173576355
+      },
+      {
+        "layer": "layer2.1.conv1",
+        "channel": 20,
+        "score": 0.23144671320915222
+      },
+      {
+        "layer": "layer2.1.conv1",
+        "channel": 106,
+        "score": 0.19926103949546814
+      },
+      {
+        "layer": "layer1.1.conv1",
+        "channel": 50,
+        "score": 0.19620192050933838
+      },
+      {
+        "layer": "layer2.0.conv1",
+        "channel": 41,
+        "score": 0.1807345449924469
+      },
+      {
+        "layer": "layer2.1.conv1",
+        "channel": 64,
+        "score": 0.17482510209083557
+      },
+      {
+        "layer": "layer1.1.bn2",
+        "channel": 8,
+        "score": 0.1672353893518448
+      },
+      {
+        "layer": "layer2.0.conv1",
+        "channel": 53,
+        "score": 0.16397233307361603
+      },
+      {
+        "layer": "layer2.0.conv1",
+        "channel": 27,
+        "score": 0.1639603078365326
+      },
+      {
+        "layer": "layer4.1.bn2",
+        "channel": 380,
+        "score": 0.156874418258667
+      },
+      {
+        "layer": "layer2.1.conv1",
+        "channel": 65,
+        "score": 0.1548244059085846
+      },
+      {
+        "layer": "layer3.0.conv1",
+        "channel": 199,
+        "score": 0.15340907871723175
+      },
+      {
+        "layer": "layer2.0.conv1",
+        "channel": 76,
+        "score": 0.1525784581899643
+      },
+      {
+        "layer": "layer4.1.bn2",
+        "channel": 66,
+        "score": 0.15032505989074707
+      },
+      {
+        "layer": "layer2.0.shortcut.0",
+        "channel": 14,
+        "score": 0.1492994874715805
+      },
+      {
+        "layer": "layer2.1.conv1",
+        "channel": 55,
+        "score": 0.14451445639133453
+      }
+    ],
+    "top_20_nr": [
+      {
+        "layer": "linear",
+        "channel": 6,
+        "score": 3.3403618335723877
+      },
+      {
+        "layer": "linear",
+        "channel": 0,
+        "score": 0.8168538808822632
+      },
+      {
+        "layer": "linear",
+        "channel": 8,
+        "score": 0.627474844455719
+      },
+      {
+        "layer": "linear",
+        "channel": 5,
+        "score": 0.3351570963859558
+      },
+      {
+        "layer": "layer2.0.conv1",
+        "channel": 66,
+        "score": 0.2692157030105591
+      },
+      {
+        "layer": "linear",
+        "channel": 7,
+        "score": 0.26167818903923035
+      },
+      {
+        "layer": "linear",
+        "channel": 3,
+        "score": 0.25724780559539795
+      },
+      {
+        "layer": "layer1.1.conv1",
+        "channel": 28,
+        "score": 0.21095256507396698
+      },
+      {
+        "layer": "layer1.1.conv1",
+        "channel": 61,
+        "score": 0.19189906120300293
+      },
+      {
+        "layer": "layer2.1.conv1",
+        "channel": 60,
+        "score": 0.18584376573562622
+      },
+      {
+        "layer": "layer1.1.conv1",
+        "channel": 45,
+        "score": 0.1765367090702057
+      },
+      {
+        "layer": "layer1.1.conv2",
+        "channel": 31,
+        "score": 0.17240935564041138
+      },
+      {
+        "layer": "layer2.1.conv1",
+        "channel": 83,
+        "score": 0.17117251455783844
+      },
+      {
+        "layer": "layer2.1.conv1",
+        "channel": 122,
+        "score": 0.16674593091011047
+      },
+      {
+        "layer": "layer1.0.conv2",
+        "channel": 43,
+        "score": 0.15912912786006927
+      },
+      {
+        "layer": "conv1",
+        "channel": 36,
+        "score": 0.15473446249961853
+      },
+      {
+        "layer": "layer4.1.bn2",
+        "channel": 237,
+        "score": 0.14675989747047424
+      },
+      {
+        "layer": "layer1.1.conv2",
+        "channel": 7,
+        "score": 0.14128056168556213
+      },
+      {
+        "layer": "layer1.0.bn1",
+        "channel": 2,
+        "score": 0.13722679018974304
+      },
+      {
+        "layer": "layer2.1.conv1",
+        "channel": 94,
+        "score": 0.1280973255634308
+      }
+    ]
+  },
+  "counterfactual": {
+    "predicted_class": 1,
+    "true_class": 1,
+    "top_20_pr": [
+      {
+        "layer": "linear",
+        "channel": 1,
+        "score": 1.5781127214431763
+      },
+      {
+        "layer": "linear",
+        "channel": 0,
+        "score": 1.1434975862503052
+      },
+      {
+        "layer": "linear",
+        "channel": 9,
+        "score": 0.6823998689651489
+      },
+      {
+        "layer": "linear",
+        "channel": 3,
+        "score": 0.6275931596755981
+      },
+      {
+        "layer": "linear",
+        "channel": 5,
+        "score": 0.5355046391487122
+      },
+      {
+        "layer": "layer2.1.conv1",
+        "channel": 20,
+        "score": 0.23632483184337616
+      },
+      {
+        "layer": "linear",
+        "channel": 8,
+        "score": 0.22900304198265076
+      },
+      {
+        "layer": "layer2.0.conv2",
+        "channel": 108,
+        "score": 0.2056218981742859
+      },
+      {
+        "layer": "layer1.1.conv1",
+        "channel": 39,
+        "score": 0.20484855771064758
+      },
+      {
+        "layer": "layer2.1.conv1",
+        "channel": 64,
+        "score": 0.19186708331108093
+      },
+      {
+        "layer": "layer1.1.conv1",
+        "channel": 10,
+        "score": 0.19118180871009827
+      },
+      {
+        "layer": "layer2.1.conv1",
+        "channel": 55,
+        "score": 0.18735849857330322
+      },
+      {
+        "layer": "layer3.1.conv1",
+        "channel": 35,
+        "score": 0.18673741817474365
+      },
+      {
+        "layer": "layer2.0.conv1",
+        "channel": 110,
+        "score": 0.18550623953342438
+      },
+      {
+        "layer": "layer1.1.bn2",
+        "channel": 38,
+        "score": 0.18326625227928162
+      },
+      {
+        "layer": "layer2.1.conv1",
+        "channel": 65,
+        "score": 0.1742802858352661
+      },
+      {
+        "layer": "layer1.1.bn2",
+        "channel": 40,
+        "score": 0.1728282868862152
+      },
+      {
+        "layer": "layer2.0.conv2",
+        "channel": 109,
+        "score": 0.17187559604644775
+      },
+      {
+        "layer": "layer2.1.conv1",
+        "channel": 66,
+        "score": 0.1711595058441162
+      },
+      {
+        "layer": "layer2.1.conv1",
+        "channel": 123,
+        "score": 0.15291230380535126
+      }
+    ],
+    "top_20_nr": [
+      {
+        "layer": "linear",
+        "channel": 2,
+        "score": 1.167190432548523
+      },
+      {
+        "layer": "layer1.1.conv1",
+        "channel": 26,
+        "score": 0.23751449584960938
+      },
+      {
+        "layer": "layer1.1.conv1",
+        "channel": 32,
+        "score": 0.2177535891532898
+      },
+      {
+        "layer": "layer2.0.conv1",
+        "channel": 66,
+        "score": 0.19612598419189453
+      },
+      {
+        "layer": "layer1.0.conv1",
+        "channel": 11,
+        "score": 0.1953085958957672
+      },
+      {
+        "layer": "layer2.0.conv1",
+        "channel": 29,
+        "score": 0.14682647585868835
+      },
+      {
+        "layer": "layer3.0.conv1",
+        "channel": 43,
+        "score": 0.14490167796611786
+      },
+      {
+        "layer": "layer1.1.conv1",
+        "channel": 28,
+        "score": 0.13605575263500214
+      },
+      {
+        "layer": "layer2.1.conv1",
+        "channel": 53,
+        "score": 0.13455715775489807
+      },
+      {
+        "layer": "layer4.1.bn2",
+        "channel": 300,
+        "score": 0.12300003319978714
+      },
+      {
+        "layer": "layer1.0.conv1",
+        "channel": 4,
+        "score": 0.1218503788113594
+      },
+      {
+        "layer": "layer2.0.conv1",
+        "channel": 74,
+        "score": 0.12159189581871033
+      },
+      {
+        "layer": "layer2.0.conv1",
+        "channel": 68,
+        "score": 0.11987943947315216
+      },
+      {
+        "layer": "layer3.1.conv1",
+        "channel": 5,
+        "score": 0.11207157373428345
+      },
+      {
+        "layer": "layer1.1.conv2",
+        "channel": 7,
+        "score": 0.11116662621498108
+      },
+      {
+        "layer": "layer4.1.bn2",
+        "channel": 470,
+        "score": 0.10971716046333313
+      },
+      {
+        "layer": "layer2.0.conv1",
+        "channel": 39,
+        "score": 0.10892810672521591
+      },
+      {
+        "layer": "layer1.1.conv1",
+        "channel": 2,
+        "score": 0.10868114233016968
+      },
+      {
+        "layer": "layer2.0.conv1",
+        "channel": 3,
+        "score": 0.10852385312318802
+      },
+      {
+        "layer": "layer1.1.bn2",
+        "channel": 25,
+        "score": 0.10822485387325287
+      }
+    ]
+  },
+  "overlap": {
+    "top_50_pr_overlap": [
+      [
+        "layer2.1.conv1",
+        103
+      ],
+      [
+        "layer2.1.conv1",
+        65
+      ],
+      [
+        "layer1.0.conv1",
+        5
+      ],
+      [
+        "linear",
+        9
+      ],
+      [
+        "layer2.1.conv1",
+        64
+      ],
+      [
+        "layer2.0.conv1",
+        41
+      ],
+      [
+        "layer1.1.conv1",
+        10
+      ],
+      [
+        "layer1.0.conv1",
+        46
+      ],
+      [
+        "layer1.1.conv1",
+        29
+      ],
+      [
+        "layer2.0.conv2",
+        109
+      ],
+      [
+        "linear",
+        1
+      ],
+      [
+        "layer3.1.conv1",
+        35
+      ],
+      [
+        "layer2.1.conv1",
+        20
+      ],
+      [
+        "layer2.1.conv1",
+        55
+      ],
+      [
+        "layer2.1.conv1",
+        106
+      ],
+      [
+        "layer2.1.conv1",
+        90
+      ]
+    ],
+    "top_50_nr_overlap": [
+      [
+        "layer2.1.conv1",
+        122
+      ],
+      [
+        "layer1.0.conv2",
+        43
+      ],
+      [
+        "layer1.0.conv1",
+        11
+      ],
+      [
+        "layer1.1.conv2",
+        7
+      ],
+      [
+        "layer2.0.conv1",
+        66
+      ],
+      [
+        "layer2.0.conv2",
+        119
+      ],
+      [
+        "layer2.1.conv1",
+        5
+      ],
+      [
+        "layer1.1.conv1",
+        26
+      ],
+      [
+        "layer2.0.conv1",
+        68
+      ],
+      [
+        "layer1.1.conv1",
+        28
+      ],
+      [
+        "layer1.1.conv1",
+        18
+      ]
+    ],
+    "pr_overlap_ratio": 0.32,
+    "nr_overlap_ratio": 0.22
+  }
+}
